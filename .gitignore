@@ -40,7 +40,6 @@ env/
 
 # Logs
 *.log
-*.txt
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -56,7 +55,8 @@ htmlcov/
 dmypy.json
 
 # Data files (too large for GitHub)
-datos/
+datos/*
+!datos/.gitkeep
 *.csv
 *.parquet
 *.npz
