@@ -432,7 +432,16 @@ class GeneradorSistematicoFeatures:
         logger.info(f"Features válidos: {len(self.features)}")
 
         # Crear DataFrame con todos los features
-        df_features = pd.DataFrame(self.features, index=self.df.index)
+        df_transformaciones = pd.DataFrame(self.features, index=self.df.index)
+
+        # Agregar columnas originales OHLCV al inicio
+        columnas_originales = ['open', 'high', 'low', 'close', 'volume']
+        df_features = pd.concat([
+            self.df[columnas_originales],
+            df_transformaciones
+        ], axis=1)
+
+        logger.info(f"\n  Columnas originales agregadas: {columnas_originales}")
 
         # Estadísticas
         logger.info(f"\nEstadísticas:")
