@@ -38,10 +38,11 @@ env/
 *~
 .DS_Store
 
-# Logs
+# Logs and documentation
 *.log
 *.txt
 !requirements.txt
+*.md
 
 # Jupyter Notebook
 .ipynb_checkpoints
