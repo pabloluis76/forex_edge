@@ -109,7 +109,7 @@ class ModelosDeepLearning:
     def crear_mlp(n_features: int,
                   capas_ocultas: List[int] = [128, 64, 32],
                   dropout: float = 0.3,
-                  learning_rate: float = 0.001) -> Model:
+                  learning_rate: float = 0.001) -> "Model":
         """
         A) MLP (Multilayer Perceptron)
 
@@ -172,7 +172,7 @@ class ModelosDeepLearning:
                   kernel_sizes: List[int] = [5, 3],
                   pool_sizes: List[int] = [2, 2],
                   dropout: float = 0.3,
-                  learning_rate: float = 0.001) -> Model:
+                  learning_rate: float = 0.001) -> "Model":
         """
         B) CNN (Convolutional Neural Network)
 
@@ -247,7 +247,7 @@ class ModelosDeepLearning:
                    n_features: int,
                    lstm_units: List[int] = [64, 32],
                    dropout: float = 0.3,
-                   learning_rate: float = 0.001) -> Model:
+                   learning_rate: float = 0.001) -> "Model":
         """
         C) LSTM (Long Short-Term Memory)
 
@@ -319,7 +319,7 @@ class ModelosDeepLearning:
                          num_heads: int = 4,
                          ff_dim: int = 128,
                          dropout: float = 0.3,
-                         learning_rate: float = 0.001) -> Model:
+                         learning_rate: float = 0.001) -> "Model":
         """
         D) TRANSFORMER / ATTENTION
 
@@ -397,7 +397,7 @@ class ModelosDeepLearning:
         return modelo
 
     def entrenar_modelo(self,
-                       modelo: Model,
+                       modelo: "Model",
                        X_train: np.ndarray,
                        y_train: np.ndarray,
                        X_val: np.ndarray,
@@ -480,7 +480,7 @@ class ModelosDeepLearning:
         return resultados
 
     @staticmethod
-    def extraer_attention_weights(modelo: Model,
+    def extraer_attention_weights(modelo: "Model",
                                   X_sample: np.ndarray) -> Optional[np.ndarray]:
         """
         Extrae pesos de atención del Transformer.

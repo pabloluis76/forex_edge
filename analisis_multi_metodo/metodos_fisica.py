@@ -6,6 +6,72 @@ Análisis avanzado inspirado en física, teoría del caos,
 procesamiento de señales y teoría de redes.
 
 
+MODELAR EL PRECIO COMO PROCESO ESTOCÁSTICO:
+───────────────────────────────────────────
+
+
+RANDOM WALK (Modelo más simple):
+
+dP = σ dW
+
+P sigue un paseo aleatorio.
+No hay predicción posible.
+
+
+GEOMETRIC BROWNIAN MOTION:
+
+dP/P = μdt + σdW
+
+El precio tiene:
+- Drift μ (tendencia)
+- Volatilidad σ
+- Componente aleatorio dW
+
+Usado en Black-Scholes para opciones.
+
+
+ORNSTEIN-UHLENBECK (Mean Reversion):
+
+dX = θ(μ - X)dt + σdW
+
+El proceso tiende a revertir hacia μ.
+θ = velocidad de reversión
+Half-life = ln(2)/θ
+
+SI el mercado sigue OU:
+- Cuando X está lejos de μ → Esperar reversión
+- θ alto → Reversión rápida
+- θ bajo → Reversión lenta
+
+
+JUMP DIFFUSION:
+
+dP/P = μdt + σdW + J dN
+
+Agrega "saltos" (J) que ocurren con probabilidad λ.
+Modela eventos extremos (crashes, rallies).
+
+
+ESTIMACIÓN DE PARÁMETROS:
+
+Para OU:
+
+θ = -ln(ρ) / Δt
+donde ρ = autocorrelación lag-1
+
+σ² = Var(X) × 2θ
+
+μ = Media de largo plazo
+
+
+APLICACIÓN:
+
+1. Estimar parámetros del proceso
+2. Si θ > 0 significativo → Hay mean reversion explotable
+3. Si θ ≈ 0 → Random walk, no hay edge
+4. Calcular half-life para sizing de trades
+
+
 A) PROCESO ORNSTEIN-UHLENBECK
 ─────────────────────────────
 Modelar la serie como proceso de mean reversion:
@@ -210,6 +276,220 @@ class MetodosFisica:
             logger.info(f"✓ Mean reversion detectado (θ > 0, p < 0.05)")
         else:
             logger.info(f"✗ No hay evidencia significativa de mean reversion")
+
+        return resultados
+
+    @staticmethod
+    def random_walk_test(serie: np.ndarray) -> Dict:
+        """
+        Test de Random Walk
+
+        Determina si la serie sigue un paseo aleatorio (no hay predicción posible).
+
+        Args:
+            serie: Serie temporal (precios o log-precios)
+
+        Returns:
+            Diccionario con resultados del test
+        """
+        logger.info("="*70)
+        logger.info("RANDOM WALK TEST")
+        logger.info("="*70)
+
+        # Eliminar NaNs
+        serie_clean = serie[~np.isnan(serie)]
+
+        # Calcular retornos
+        retornos = np.diff(serie_clean)
+
+        # Test de autocorrelación
+        from statsmodels.stats.diagnostic import acorr_ljungbox
+
+        # Ljung-Box test para autocorrelación
+        lb_result = acorr_ljungbox(retornos, lags=[1, 5, 10], return_df=True)
+
+        # Si p-value > 0.05 → No hay autocorrelación significativa → Random Walk
+        is_random_walk = (lb_result['lb_pvalue'] > 0.05).all()
+
+        # Varianza ratio test (Lo-MacKinlay)
+        # VR = Var(retorno k-período) / (k × Var(retorno 1-período))
+        # Si VR ≈ 1 → Random Walk
+
+        k = 5
+        var_1 = np.var(retornos)
+        retornos_k = np.diff(serie_clean[::k])
+        var_k = np.var(retornos_k)
+        variance_ratio = var_k / (k * var_1) if var_1 > 0 else 0
+
+        resultados = {
+            'is_random_walk': is_random_walk,
+            'ljungbox_pvalue': lb_result['lb_pvalue'].iloc[0],
+            'variance_ratio': variance_ratio,
+            'autocorr_lag1': np.corrcoef(retornos[:-1], retornos[1:])[0, 1]
+        }
+
+        logger.info(f"Ljung-Box p-value (lag 1): {resultados['ljungbox_pvalue']:.6f}")
+        logger.info(f"Variance Ratio (k={k}):    {variance_ratio:.4f}")
+        logger.info(f"Autocorrelación lag-1:     {resultados['autocorr_lag1']:.6f}")
+
+        if is_random_walk:
+            logger.info("✓ Serie sigue RANDOM WALK → No hay predicción posible")
+        else:
+            logger.info("✗ Serie NO es Random Walk → Posible edge predictivo")
+
+        return resultados
+
+    @staticmethod
+    def geometric_brownian_motion(serie: np.ndarray, dt: float = 1.0) -> Dict:
+        """
+        Estima parámetros de Geometric Brownian Motion
+
+        dP/P = μdt + σdW
+
+        Args:
+            serie: Serie de precios
+            dt: Incremento de tiempo
+
+        Returns:
+            Diccionario con μ (drift) y σ (volatilidad)
+        """
+        logger.info("="*70)
+        logger.info("GEOMETRIC BROWNIAN MOTION")
+        logger.info("="*70)
+
+        # Eliminar NaNs
+        serie_clean = serie[~np.isnan(serie)]
+
+        # Calcular log-retornos
+        log_retornos = np.diff(np.log(serie_clean))
+
+        # Estimación de parámetros
+        # μ = E[log(P_t+1 / P_t)] / dt + σ²/2
+        # σ² = Var[log(P_t+1 / P_t)] / dt
+
+        media_log_ret = np.mean(log_retornos)
+        var_log_ret = np.var(log_retornos)
+
+        sigma_squared = var_log_ret / dt
+        sigma = np.sqrt(sigma_squared)
+
+        # Ajuste de drift
+        mu = media_log_ret / dt + sigma_squared / 2
+
+        # Intervalo de confianza para μ
+        n = len(log_retornos)
+        se_mu = sigma / np.sqrt(n * dt)
+        ci_lower = mu - 1.96 * se_mu
+        ci_upper = mu + 1.96 * se_mu
+
+        resultados = {
+            'mu': mu,
+            'sigma': sigma,
+            'mu_anualizado': mu * 252,  # Para datos diarios
+            'sigma_anualizada': sigma * np.sqrt(252),
+            'mu_ci_lower': ci_lower,
+            'mu_ci_upper': ci_upper,
+            'sharpe_ratio': mu / sigma if sigma > 0 else 0
+        }
+
+        logger.info(f"Drift (μ):              {mu:.6f} por período")
+        logger.info(f"Volatilidad (σ):        {sigma:.6f} por período")
+        logger.info(f"μ anualizado (252 días): {resultados['mu_anualizado']:.4f}")
+        logger.info(f"σ anualizada (252 días): {resultados['sigma_anualizada']:.4f}")
+        logger.info(f"Sharpe ratio:            {resultados['sharpe_ratio']:.4f}")
+        logger.info(f"95% CI para μ:           [{ci_lower:.6f}, {ci_upper:.6f}]")
+
+        if ci_lower > 0:
+            logger.info("✓ Drift positivo significativo (tendencia alcista)")
+        elif ci_upper < 0:
+            logger.info("✓ Drift negativo significativo (tendencia bajista)")
+        else:
+            logger.info("○ Drift no significativamente diferente de cero")
+
+        return resultados
+
+    @staticmethod
+    def jump_diffusion_detect(serie: np.ndarray,
+                              threshold_std: float = 3.0) -> Dict:
+        """
+        Detecta "saltos" en la serie (Jump Diffusion model)
+
+        dP/P = μdt + σdW + J dN
+
+        Args:
+            serie: Serie de precios
+            threshold_std: Umbral en desviaciones estándar para detectar salto
+
+        Returns:
+            Diccionario con saltos detectados y parámetros
+        """
+        logger.info("="*70)
+        logger.info("JUMP DIFFUSION - DETECCIÓN DE SALTOS")
+        logger.info("="*70)
+
+        # Eliminar NaNs
+        serie_clean = serie[~np.isnan(serie)]
+
+        # Calcular retornos
+        retornos = np.diff(serie_clean) / serie_clean[:-1]
+
+        # Identificar outliers (saltos)
+        media = np.mean(retornos)
+        std = np.std(retornos)
+
+        # Saltos = retornos > threshold × std
+        umbral_superior = media + threshold_std * std
+        umbral_inferior = media - threshold_std * std
+
+        saltos_indices = np.where((retornos > umbral_superior) | (retornos < umbral_inferior))[0]
+        saltos_valores = retornos[saltos_indices]
+
+        # Frecuencia de saltos (λ)
+        n_periodos = len(retornos)
+        lambda_saltos = len(saltos_indices) / n_periodos
+
+        # Magnitud promedio de saltos
+        if len(saltos_valores) > 0:
+            magnitud_salto_promedio = np.mean(np.abs(saltos_valores))
+            magnitud_salto_std = np.std(saltos_valores)
+        else:
+            magnitud_salto_promedio = 0
+            magnitud_salto_std = 0
+
+        # Retornos sin saltos (componente de difusión)
+        retornos_sin_saltos = retornos[(retornos <= umbral_superior) & (retornos >= umbral_inferior)]
+        sigma_difusion = np.std(retornos_sin_saltos)
+
+        resultados = {
+            'n_saltos': len(saltos_indices),
+            'lambda_saltos': lambda_saltos,
+            'saltos_indices': saltos_indices,
+            'saltos_valores': saltos_valores,
+            'magnitud_promedio': magnitud_salto_promedio,
+            'magnitud_std': magnitud_salto_std,
+            'sigma_difusion': sigma_difusion,
+            'sigma_total': std,
+            'threshold_std': threshold_std
+        }
+
+        logger.info(f"Saltos detectados:           {len(saltos_indices)}")
+        logger.info(f"Frecuencia de saltos (λ):    {lambda_saltos:.6f} (prob. por período)")
+        logger.info(f"Magnitud promedio de salto:  {magnitud_salto_promedio:.6f}")
+        logger.info(f"Std de magnitud de saltos:   {magnitud_salto_std:.6f}")
+        logger.info(f"σ (difusión sin saltos):     {sigma_difusion:.6f}")
+        logger.info(f"σ (total con saltos):        {std:.6f}")
+
+        if len(saltos_indices) > 0:
+            logger.info(f"\nPrimeros saltos detectados:")
+            for i in range(min(5, len(saltos_indices))):
+                idx = saltos_indices[i]
+                valor = saltos_valores[i]
+                logger.info(f"  Período {idx}: {valor:>10.6f} ({valor*100:.2f}%)")
+
+        if lambda_saltos > 0.01:
+            logger.info("\n⚠ Saltos frecuentes detectados → Modelo Jump Diffusion apropiado")
+        else:
+            logger.info("\n○ Pocos saltos → GBM estándar puede ser suficiente")
 
         return resultados
 
@@ -639,9 +919,50 @@ def ejemplo_uso():
     print("="*70)
     print()
 
-    # Generar serie sintética con mean reversion
+    # Generar series sintéticas
     np.random.seed(42)
     n = 1000
+
+    metodos = MetodosFisica()
+
+    # ========================================
+    # 1. RANDOM WALK
+    # ========================================
+    print("\n" + "="*70)
+    print("1. RANDOM WALK")
+    print("="*70)
+
+    # Serie que sigue random walk
+    serie_rw = np.cumsum(np.random.randn(n) * 0.01)
+
+    rw_results = metodos.random_walk_test(serie_rw)
+
+    # ========================================
+    # 2. GEOMETRIC BROWNIAN MOTION
+    # ========================================
+    print("\n" + "="*70)
+    print("2. GEOMETRIC BROWNIAN MOTION")
+    print("="*70)
+
+    # Serie GBM con drift positivo
+    mu_gbm = 0.0005  # 0.05% por período
+    sigma_gbm = 0.02  # 2% volatilidad
+    precios_gbm = [100]
+
+    for _ in range(n-1):
+        dP = mu_gbm * precios_gbm[-1] + sigma_gbm * precios_gbm[-1] * np.random.randn()
+        precios_gbm.append(precios_gbm[-1] + dP)
+
+    precios_gbm = np.array(precios_gbm)
+
+    gbm_results = metodos.geometric_brownian_motion(precios_gbm)
+
+    # ========================================
+    # 3. ORNSTEIN-UHLENBECK (MEAN REVERSION)
+    # ========================================
+    print("\n" + "="*70)
+    print("3. ORNSTEIN-UHLENBECK (MEAN REVERSION)")
+    print("="*70)
 
     # Serie con mean reversion (proceso OU)
     theta_true = 0.1
@@ -655,11 +976,33 @@ def ejemplo_uso():
 
     serie_ou = np.array(serie_ou)
 
-    metodos = MetodosFisica()
-
-    # A) Ornstein-Uhlenbeck
-    print("\n")
     ou_results = metodos.ornstein_uhlenbeck(serie_ou)
+
+    # ========================================
+    # 4. JUMP DIFFUSION
+    # ========================================
+    print("\n" + "="*70)
+    print("4. JUMP DIFFUSION")
+    print("="*70)
+
+    # Serie con saltos ocasionales
+    precios_jump = [100]
+    lambda_jump = 0.02  # 2% probabilidad de salto por período
+
+    for _ in range(n-1):
+        # Componente de difusión
+        dP = 0.0001 * precios_jump[-1] + 0.01 * precios_jump[-1] * np.random.randn()
+
+        # Componente de salto
+        if np.random.rand() < lambda_jump:
+            jump = np.random.choice([-1, 1]) * 0.05 * precios_jump[-1]  # Salto de ±5%
+            dP += jump
+
+        precios_jump.append(precios_jump[-1] + dP)
+
+    precios_jump = np.array(precios_jump)
+
+    jump_results = metodos.jump_diffusion_detect(precios_jump, threshold_std=2.5)
 
     # B) Hurst Exponent
     print("\n")
