@@ -294,15 +294,25 @@ class EjecutorAnalisisMultimetodo:
 
         Intenta cargar tensor pre-generado. Si no existe, lo crea en memoria.
 
+        IMPORTANTE: La normalización es ALTAMENTE RECOMENDADA para Deep Learning.
+        Los modelos de DL son sensibles a la escala de features y convergen mejor
+        con datos normalizados.
+
         Args:
             X: Matriz 2D (n_samples, n_features)
             y: Vector target (n_samples,)
             lookback: Número de timesteps de historia
-            normalizar: Si True, aplica normalización Z-score rolling
+            normalizar: Si True, aplica normalización Z-score rolling (RECOMENDADO)
 
         Returns:
             X_3d, y_3d: Datos en formato 3D (n_sequences, lookback, n_features)
         """
+        # Validación: advertir si se desactiva normalización
+        if not normalizar:
+            logger.warning("⚠️  ADVERTENCIA: Normalización desactivada para Deep Learning")
+            logger.warning("⚠️  Los modelos DL convergen mejor con datos normalizados")
+            logger.warning("⚠️  Se recomienda usar normalizar=True")
+
         n_samples, n_features = X.shape
         n_sequences = n_samples - lookback
 
@@ -319,10 +329,12 @@ class EjecutorAnalisisMultimetodo:
             X_3d[i] = X[i:i+lookback]
             y_3d[i] = y[i+lookback]
 
-        # Normalización point-in-time opcional
+        # Normalización point-in-time (RECOMENDADA)
         if normalizar:
-            logger.info("Aplicando normalización Z-score point-in-time...")
+            logger.info("✓ Aplicando normalización Z-score point-in-time...")
             X_3d = self._normalizar_tensor_point_in_time(X_3d)
+        else:
+            logger.warning("⚠️  Sin normalización - los resultados pueden ser subóptimos")
 
         logger.info(f"✓ Tensor 3D preparado: {X_3d.shape}")
         return X_3d, y_3d
@@ -529,7 +541,13 @@ class EjecutorAnalisisMultimetodo:
 
                     # Preparar datos 3D para modelos secuenciales
                     logger.info(f"Preparando datos secuenciales (lookback={LOOKBACK})...")
-                    X_3d, y_3d = self.preparar_datos_secuenciales(X, y, lookback=LOOKBACK)
+                    # IMPORTANTE: Deep Learning requiere normalización obligatoria
+                    logger.info("Preparando datos 3D con normalización point-in-time...")
+                    X_3d, y_3d = self.preparar_datos_secuenciales(
+                        X, y,
+                        lookback=LOOKBACK,
+                        normalizar=True  # Obligatorio para DL
+                    )
 
                     if X_3d is None:
                         logger.error("No se pudieron preparar datos 3D")
@@ -539,16 +557,31 @@ class EjecutorAnalisisMultimetodo:
                         split_idx = int(len(X) * (1 - TEST_SIZE))
                         split_idx_3d = int(len(X_3d) * (1 - TEST_SIZE))
 
-                        # Datos 2D para MLP
-                        X_train_2d, X_test_2d = X[:split_idx], X[split_idx:]
-                        y_train_2d, y_test_2d = y[:split_idx], y[split_idx:]
+                        # Datos 2D para MLP - NORMALIZAR usando StandardScaler
+                        logger.info("Normalizando datos 2D para MLP...")
+                        from sklearn.preprocessing import StandardScaler
+                        scaler_2d = StandardScaler()
 
-                        # Datos 3D para CNN/LSTM/Transformer
+                        X_train_2d = X[:split_idx]
+                        X_test_2d = X[split_idx:]
+                        y_train_2d = y[:split_idx]
+                        y_test_2d = y[split_idx:]
+
+                        # Ajustar scaler solo con train, aplicar a ambos
+                        X_train_2d = scaler_2d.fit_transform(X_train_2d)
+                        X_test_2d = scaler_2d.transform(X_test_2d)
+
+                        logger.info(f"✓ Datos 2D normalizados (mean≈0, std≈1)")
+                        logger.info(f"  Train mean: {X_train_2d.mean():.4f}, std: {X_train_2d.std():.4f}")
+                        logger.info(f"  Test mean: {X_test_2d.mean():.4f}, std: {X_test_2d.std():.4f}")
+
+                        # Datos 3D para CNN/LSTM/Transformer (ya normalizados)
                         X_train_3d, X_test_3d = X_3d[:split_idx_3d], X_3d[split_idx_3d:]
                         y_train_3d, y_test_3d = y_3d[:split_idx_3d], y_3d[split_idx_3d:]
 
-                        logger.info(f"Train 2D: {X_train_2d.shape}, Test 2D: {X_test_2d.shape}")
-                        logger.info(f"Train 3D: {X_train_3d.shape}, Test 3D: {X_test_3d.shape}")
+                        logger.info(f"\nShapes:")
+                        logger.info(f"  Train 2D: {X_train_2d.shape}, Test 2D: {X_test_2d.shape}")
+                        logger.info(f"  Train 3D: {X_train_3d.shape}, Test 3D: {X_test_3d.shape}")
 
                         # Inicializar
                         dl = ModelosDeepLearning()
@@ -577,10 +610,37 @@ class EjecutorAnalisisMultimetodo:
                                 early_stopping_patience=EARLY_STOPPING_PATIENCE
                             )
 
+                            # Extraer feature importance del MLP
+                            # Usar magnitud de pesos de la capa de entrada
+                            try:
+                                import tensorflow as tf
+                                primera_capa = modelo_mlp.layers[0]
+                                pesos_entrada = primera_capa.get_weights()[0]  # Shape: (n_features, n_neuronas)
+
+                                # Calcular importancia como magnitud promedio absoluta de pesos
+                                importancia_mlp = np.mean(np.abs(pesos_entrada), axis=1)
+
+                                # Crear DataFrame de importancia
+                                df_importancia_mlp = pd.DataFrame({
+                                    'feature': nombres_features,
+                                    'importancia': importancia_mlp
+                                })
+                                df_importancia_mlp = df_importancia_mlp.sort_values('importancia', ascending=False)
+
+                                # Guardar top features
+                                top_100_mlp = df_importancia_mlp.head(100)['feature'].tolist()
+
+                                logger.info(f"✓ Feature importance MLP extraída: {len(top_100_mlp)} top features")
+
+                            except Exception as e_imp:
+                                logger.warning(f"No se pudo extraer feature importance de MLP: {e_imp}")
+                                top_100_mlp = []
+
                             resultados_dl['mlp'] = {
                                 'val_loss': float(resultado_mlp['val_loss']),
                                 'val_mae': float(resultado_mlp['val_mae']),
-                                'train_loss': float(resultado_mlp['train_loss'])
+                                'train_loss': float(resultado_mlp['train_loss']),
+                                'top_features': top_100_mlp
                             }
 
                             logger.info(f"✓ MLP completado: Val Loss={resultado_mlp['val_loss']:.6f}")

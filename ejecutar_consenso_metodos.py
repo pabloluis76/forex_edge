@@ -176,6 +176,73 @@ class EjecutorConsensoMetodos:
 
         logger.info(f"✓ Limpieza completada: {len(archivos_existentes)} archivos eliminados\n")
 
+    def cargar_resultados_analisis_pregenerados(self, par: str) -> dict:
+        """
+        Carga resultados de análisis multi-método pre-generados desde CSVs.
+
+        Evita recálculo de IC, MI, RF que ya fueron calculados en
+        ejecutar_analisis_multimetodo.py.
+
+        Args:
+            par: Nombre del par
+
+        Returns:
+            dict con 'ic', 'mi', 'rf', 'dl', 'lasso' (o None si no existen)
+        """
+        analisis_dir = Path(__file__).parent / 'datos' / 'analisis_multimetodo'
+
+        resultados = {
+            'ic': None,
+            'mi': None,
+            'rf': None,
+            'dl': None,
+            'lasso': None,
+            'gb': None
+        }
+
+        # Intentar cargar IC
+        archivo_ic = analisis_dir / f"{par}_{self.timeframe}_analisis_IC.csv"
+        if archivo_ic.exists():
+            resultados['ic'] = pd.read_csv(archivo_ic)
+            logger.info(f"  ✓ IC cargado desde CSV: {len(resultados['ic'])} features")
+
+        # Intentar cargar MI
+        archivo_mi = analisis_dir / f"{par}_{self.timeframe}_analisis_MI.csv"
+        if archivo_mi.exists():
+            resultados['mi'] = pd.read_csv(archivo_mi)
+            logger.info(f"  ✓ MI cargado desde CSV: {len(resultados['mi'])} features")
+
+        # Intentar cargar RF
+        archivo_rf = analisis_dir / f"{par}_{self.timeframe}_analisis_RF_importance.csv"
+        if archivo_rf.exists():
+            resultados['rf'] = pd.read_csv(archivo_rf)
+            logger.info(f"  ✓ RF cargado desde CSV: {len(resultados['rf'])} features")
+
+        # Intentar cargar DL
+        archivo_dl = analisis_dir / f"{par}_{self.timeframe}_analisis_DL.json"
+        if archivo_dl.exists():
+            with open(archivo_dl, 'r') as f:
+                resultados['dl'] = json.load(f)
+            logger.info(f"  ✓ DL cargado desde JSON")
+
+        # Intentar cargar análisis completo para Lasso y GB
+        archivo_completo = analisis_dir / f"{par}_{self.timeframe}_analisis_completo.json"
+        if archivo_completo.exists():
+            with open(archivo_completo, 'r') as f:
+                analisis_completo = json.load(f)
+
+            # Extraer Lasso
+            if 'analisis' in analisis_completo and 'estadistico' in analisis_completo['analisis']:
+                resultados['lasso'] = analisis_completo['analisis']['estadistico']
+                logger.info(f"  ✓ Lasso cargado desde JSON")
+
+            # Extraer Gradient Boosting (si existe)
+            if 'analisis' in analisis_completo and 'machine_learning' in analisis_completo['analisis']:
+                resultados['gb'] = analisis_completo['analisis']['machine_learning']
+                logger.info(f"  ✓ Gradient Boosting cargado desde JSON")
+
+        return resultados
+
     def cargar_features_y_preparar_datos(self, par: str) -> tuple:
         """
         Carga features y prepara X, y para análisis.
@@ -243,6 +310,130 @@ class EjecutorConsensoMetodos:
 
         return X, y, nombres_features, df_clean
 
+    def generar_consenso_desde_resultados_pregenerados(
+        self,
+        resultados_analisis: dict,
+        par: str,
+        umbral_ic: float = 0.01,
+        umbral_mi: float = 0.01,
+        top_rf: int = 100,
+        top_gb: int = 100
+    ) -> pd.DataFrame:
+        """
+        Genera tabla de consenso usando resultados pre-calculados.
+
+        Args:
+            resultados_analisis: Dict con 'ic', 'mi', 'rf', 'dl', 'lasso', 'gb'
+            par: Nombre del par
+            umbral_ic: Umbral para IC
+            umbral_mi: Umbral para MI
+            top_rf: Top N para Random Forest
+            top_gb: Top N para Gradient Boosting
+
+        Returns:
+            DataFrame con consenso por feature
+        """
+        logger.info("\nGenerando consenso desde resultados pre-calculados...")
+
+        # Coleccionar todos los features únicos
+        todos_features = set()
+
+        if resultados_analisis['ic'] is not None:
+            todos_features.update(resultados_analisis['ic']['feature'].tolist())
+        if resultados_analisis['mi'] is not None:
+            todos_features.update(resultados_analisis['mi']['feature'].tolist())
+        if resultados_analisis['rf'] is not None:
+            todos_features.update(resultados_analisis['rf']['feature'].tolist())
+
+        todos_features = sorted(list(todos_features))
+        logger.info(f"  Features únicos encontrados: {len(todos_features)}")
+
+        # Crear DataFrame de consenso
+        df_consenso = pd.DataFrame({'feature': todos_features})
+
+        # Votos por método
+        df_consenso['voto_IC'] = False
+        df_consenso['voto_MI'] = False
+        df_consenso['voto_Lasso'] = False
+        df_consenso['voto_RF'] = False
+        df_consenso['voto_GB'] = False
+        df_consenso['voto_DL_MLP'] = False
+
+        # Evaluar IC
+        if resultados_analisis['ic'] is not None:
+            df_ic = resultados_analisis['ic']
+            if 'abs_IC' in df_ic.columns:
+                ic_col = 'abs_IC'
+            elif 'IC' in df_ic.columns:
+                ic_col = 'IC'
+                df_ic['abs_IC'] = df_ic['IC'].abs()
+                ic_col = 'abs_IC'
+            else:
+                logger.warning("Columna IC no encontrada en resultados")
+                ic_col = None
+
+            if ic_col:
+                features_ic = df_ic[df_ic[ic_col] > umbral_ic]['feature'].tolist()
+                df_consenso.loc[df_consenso['feature'].isin(features_ic), 'voto_IC'] = True
+                logger.info(f"  IC: {len(features_ic)} features aprueban (|IC| > {umbral_ic})")
+
+        # Evaluar MI
+        if resultados_analisis['mi'] is not None:
+            df_mi = resultados_analisis['mi']
+            features_mi = df_mi[df_mi['MI'] > umbral_mi]['feature'].tolist()
+            df_consenso.loc[df_consenso['feature'].isin(features_mi), 'voto_MI'] = True
+            logger.info(f"  MI: {len(features_mi)} features aprueban (MI > {umbral_mi})")
+
+        # Evaluar RF
+        if resultados_analisis['rf'] is not None:
+            df_rf = resultados_analisis['rf']
+            features_rf = df_rf.head(top_rf)['feature'].tolist()
+            df_consenso.loc[df_consenso['feature'].isin(features_rf), 'voto_RF'] = True
+            logger.info(f"  RF: {len(features_rf)} features aprueban (top {top_rf})")
+
+        # Evaluar Deep Learning MLP
+        if resultados_analisis['dl'] is not None:
+            try:
+                dl_data = resultados_analisis['dl']
+                if 'mlp' in dl_data and 'top_features' in dl_data['mlp']:
+                    features_mlp = dl_data['mlp']['top_features']
+                    if features_mlp and len(features_mlp) > 0:
+                        df_consenso.loc[df_consenso['feature'].isin(features_mlp), 'voto_DL_MLP'] = True
+                        logger.info(f"  DL-MLP: {len(features_mlp)} features aprueban (top features)")
+                    else:
+                        logger.info(f"  DL-MLP: No hay top features disponibles")
+                else:
+                    logger.info(f"  DL-MLP: No disponible en resultados")
+            except Exception as e:
+                logger.warning(f"  DL-MLP: Error al procesar - {e}")
+
+        # Evaluar Lasso (si está disponible)
+        # Lasso requiere recálculo ya que solo tenemos n_features_lasso en JSON
+        # Por ahora lo dejamos en False
+
+        # Evaluar Gradient Boosting (si está disponible)
+        # GB también requiere recálculo completo
+        # Por ahora lo dejamos en False
+
+        # Contar votos totales (incluyendo DL si está disponible)
+        votos_cols = ['voto_IC', 'voto_MI', 'voto_RF', 'voto_DL_MLP']
+        df_consenso['votos'] = df_consenso[votos_cols].sum(axis=1)
+
+        # Ordenar por número de votos
+        df_consenso = df_consenso.sort_values('votos', ascending=False)
+
+        # Estadísticas (con 4 métodos: IC, MI, RF, DL-MLP)
+        consenso_fuerte = len(df_consenso[df_consenso['votos'] >= 3])
+        consenso_medio = len(df_consenso[df_consenso['votos'] == 2])
+        consenso_debil = len(df_consenso[df_consenso['votos'] <= 1])
+
+        logger.info(f"\nResultados de consenso (modo optimizado - 4 métodos):")
+        logger.info(f"  Consenso Fuerte (≥3 votos): {consenso_fuerte}")
+        logger.info(f"  Consenso Medio (2 votos): {consenso_medio}")
+        logger.info(f"  Consenso Débil (≤1 voto): {consenso_debil}")
+
+        return df_consenso
+
     def analizar_un_par(self, par: str) -> dict:
         """
         Ejecuta proceso de consenso para un par.
@@ -282,40 +473,95 @@ class EjecutorConsensoMetodos:
                 'exito': True,
                 'n_features_totales': len(nombres_features),
                 'n_muestras': len(y),
-                'consenso': {}
+                'consenso': {},
+                'modo': 'desconocido'
             }
 
             # ==========================================
-            # OPCIÓN 1: TABLA DE CONSENSO
+            # INTENTAR CARGAR RESULTADOS PRE-GENERADOS
             # ==========================================
             logger.info("\n" + "="*80)
-            logger.info("GENERANDO TABLA DE CONSENSO")
+            logger.info("CARGANDO RESULTADOS DE ANÁLISIS MULTI-MÉTODO")
             logger.info("="*80)
 
-            tabla = TablaConsenso(X, y, nombres_features)
+            resultados_pregenerados = self.cargar_resultados_analisis_pregenerados(par)
 
-            # Generar tabla completa
-            df_consenso = tabla.generar_tabla_completa(
-                umbral_ic=0.01,
-                umbral_mi=0.01,
-                top_rf=50,
-                top_gb=50
-            )
+            # Verificar si tenemos suficientes resultados pre-generados
+            tiene_ic = resultados_pregenerados['ic'] is not None
+            tiene_mi = resultados_pregenerados['mi'] is not None
+            tiene_rf = resultados_pregenerados['rf'] is not None
+            tiene_dl = resultados_pregenerados['dl'] is not None
 
-            # Guardar tabla de consenso
-            output_tabla = self.consenso_dir / f"{par}_{self.timeframe}_tabla_consenso.csv"
-            tabla.guardar_tabla(output_tabla)
-            logger.info(f"✓ Tabla de consenso guardada: {output_tabla.name}")
+            usar_modo_optimizado = tiene_ic and tiene_mi and tiene_rf
 
-            # Analizar consenso
-            consenso_fuerte = df_consenso[df_consenso['votos'] >= 5]
-            consenso_medio = df_consenso[(df_consenso['votos'] >= 3) & (df_consenso['votos'] < 5)]
-            consenso_debil = df_consenso[df_consenso['votos'] < 3]
+            if usar_modo_optimizado:
+                logger.info("\n✓ Resultados pre-generados encontrados - MODO OPTIMIZADO")
+                logger.info(f"  IC: SÍ | MI: SÍ | RF: SÍ | DL: {'SÍ' if tiene_dl else 'NO'}")
+                logger.info(f"  (Evitando recálculo de {'IC, MI, RF, DL' if tiene_dl else 'IC, MI, RF'})")
+                resultados_par['modo'] = 'optimizado'
+                resultados_par['tiene_dl'] = tiene_dl
 
+                # ==========================================
+                # MODO OPTIMIZADO: USAR RESULTADOS PRE-GENERADOS
+                # ==========================================
+                df_consenso = self.generar_consenso_desde_resultados_pregenerados(
+                    resultados_pregenerados,
+                    par,
+                    umbral_ic=0.01,
+                    umbral_mi=0.01,
+                    top_rf=self.top_n_por_metodo
+                )
+
+                # Guardar tabla de consenso
+                output_tabla = self.consenso_dir / f"{par}_{self.timeframe}_tabla_consenso.csv"
+                df_consenso.to_csv(output_tabla, index=False)
+                logger.info(f"✓ Tabla de consenso guardada: {output_tabla.name}")
+
+                # Analizar consenso (ajustado para 3-4 métodos dependiendo de DL)
+                n_metodos = 4 if tiene_dl else 3
+                umbral_fuerte = 3 if tiene_dl else 3
+                consenso_fuerte = df_consenso[df_consenso['votos'] >= umbral_fuerte]
+                consenso_medio = df_consenso[df_consenso['votos'] == 2]
+                consenso_debil = df_consenso[df_consenso['votos'] <= 1]
+
+            else:
+                logger.info("\n⚠️  Resultados pre-generados NO disponibles - MODO RECÁLCULO")
+                logger.info("  (Calculando IC, MI, RF desde cero)")
+                logger.info(f"  IC disponible: {'SÍ' if tiene_ic else 'NO'}")
+                logger.info(f"  MI disponible: {'SÍ' if tiene_mi else 'NO'}")
+                logger.info(f"  RF disponible: {'SÍ' if tiene_rf else 'NO'}")
+                resultados_par['modo'] = 'recalculo'
+
+                # ==========================================
+                # MODO RECÁLCULO: TABLA DE CONSENSO COMPLETA
+                # ==========================================
+                logger.info("\nGenerando tabla de consenso (recalculando métodos)...")
+
+                tabla = TablaConsenso(X, y, nombres_features)
+
+                # Generar tabla completa
+                df_consenso = tabla.generar_tabla_completa(
+                    umbral_ic=0.01,
+                    umbral_mi=0.01,
+                    top_rf=50,
+                    top_gb=50
+                )
+
+                # Guardar tabla de consenso
+                output_tabla = self.consenso_dir / f"{par}_{self.timeframe}_tabla_consenso.csv"
+                tabla.guardar_tabla(output_tabla)
+                logger.info(f"✓ Tabla de consenso guardada: {output_tabla.name}")
+
+                # Analizar consenso (5 métodos)
+                consenso_fuerte = df_consenso[df_consenso['votos'] >= 5]
+                consenso_medio = df_consenso[(df_consenso['votos'] >= 3) & (df_consenso['votos'] < 5)]
+                consenso_debil = df_consenso[df_consenso['votos'] < 3]
+
+            # Imprimir resultados
             logger.info(f"\nResultados Tabla de Consenso:")
-            logger.info(f"  Consenso Fuerte (≥5 votos): {len(consenso_fuerte)}")
-            logger.info(f"  Consenso Medio (3-4 votos): {len(consenso_medio)}")
-            logger.info(f"  Consenso Débil (<3 votos): {len(consenso_debil)}")
+            logger.info(f"  Consenso Fuerte: {len(consenso_fuerte)}")
+            logger.info(f"  Consenso Medio: {len(consenso_medio)}")
+            logger.info(f"  Consenso Débil: {len(consenso_debil)}")
 
             resultados_par['consenso']['tabla'] = {
                 'n_fuerte': len(consenso_fuerte),
