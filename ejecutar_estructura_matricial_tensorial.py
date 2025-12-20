@@ -33,6 +33,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 import warnings
+import shutil
+from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
@@ -54,7 +56,9 @@ class EjecutorEstructuraMatricialTensorial:
         self,
         features_dir: Path,
         output_dir: Path,
-        pares: List[str]
+        pares: List[str],
+        limpiar_archivos_viejos: bool = True,
+        hacer_backup: bool = True
     ):
         """
         Inicializa el ejecutor.
@@ -63,10 +67,14 @@ class EjecutorEstructuraMatricialTensorial:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar estructuras
             pares: Lista de pares a procesar
+            limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
+            hacer_backup: Si True, hace backup antes de borrar
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
         self.pares = pares
+        self.limpiar_archivos_viejos = limpiar_archivos_viejos
+        self.hacer_backup = hacer_backup
 
         # Crear subdirectorios
         self.matriz_2d_dir = self.output_dir / 'matriz_2d'
@@ -82,6 +90,54 @@ class EjecutorEstructuraMatricialTensorial:
         self.resultados = {}
         self.tiempo_inicio = None
         self.tiempo_fin = None
+
+    def limpiar_directorio_salida(self):
+        """
+        Limpia archivos .npz viejos del directorio de salida.
+        Opcionalmente hace backup antes de borrar.
+        """
+        # Buscar archivos de estructuras existentes
+        archivos_npz = list(self.matriz_2d_dir.glob("*.npz"))
+        archivos_npz += list(self.tensor_3d_dir.glob("*.npz"))
+        archivos_npz += list(self.tensor_4d_dir.glob("*.npz"))
+        archivos_npz += list(self.normalizacion_dir.glob("*.npz"))
+
+        if not archivos_npz:
+            logger.info("No hay archivos viejos para limpiar")
+            return
+
+        logger.info(f"\nEncontrados {len(archivos_npz)} archivos viejos:")
+        for archivo in archivos_npz[:10]:  # Mostrar solo primeros 10
+            logger.info(f"  - {archivo.name}")
+        if len(archivos_npz) > 10:
+            logger.info(f"  ... y {len(archivos_npz) - 10} más")
+
+        # Hacer backup si está habilitado
+        if self.hacer_backup:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_dir = self.output_dir / f"backup_{timestamp}"
+
+            # Crear subdirectorios en backup
+            for subdir in ['matriz_2d', 'tensor_3d', 'tensor_4d', 'normalizacion']:
+                (backup_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"\nCreando backup en: {backup_dir}")
+
+            for archivo in archivos_npz:
+                # Mantener estructura de subdirectorios
+                relpath = archivo.relative_to(self.output_dir)
+                destino = backup_dir / relpath
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(archivo, destino)
+
+            logger.info(f"✓ Backup completado: {len(archivos_npz)} archivos")
+
+        # Borrar archivos viejos
+        logger.info("\nBorrando archivos viejos...")
+        for archivo in archivos_npz:
+            archivo.unlink()
+
+        logger.info(f"✓ Limpieza completada: {len(archivos_npz)} archivos eliminados\n")
 
     def cargar_features(self, par: str) -> Optional[pd.DataFrame]:
         """
@@ -405,13 +461,22 @@ class EjecutorEstructuraMatricialTensorial:
         logger.info(f"Pares: {len(self.pares)}")
         logger.info(f"Directorio features: {self.features_dir}")
         logger.info(f"Directorio salida: {self.output_dir}")
+        logger.info(f"Limpiar archivos viejos: {'SÍ' if self.limpiar_archivos_viejos else 'NO'}")
+        logger.info(f"Hacer backup: {'SÍ' if self.hacer_backup else 'NO'}")
         logger.info(f"Seq length: {seq_length}")
         logger.info(f"Norm window: {norm_window}")
         logger.info(f"Inicio: {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"{'='*80}")
 
+        # Limpiar archivos viejos si está habilitado
+        if self.limpiar_archivos_viejos:
+            logger.info("\n" + "="*80)
+            logger.info("LIMPIEZA DE ARCHIVOS VIEJOS")
+            logger.info("="*80)
+            self.limpiar_directorio_salida()
+
         # Procesar cada par
-        for i, par in enumerate(self.pares, 1):
+        for i, par in enumerate(tqdm(self.pares, desc="Procesando pares", unit="par"), 1):
             logger.info(f"\n[{i}/{len(self.pares)}] Procesando: {par}")
             self.procesar_un_par(par, seq_length, norm_window)
 
@@ -485,16 +550,15 @@ def main():
     OUTPUT_DIR = BASE_DIR / 'datos' / 'estructura_matricial_tensorial'
 
     PARES = [
-        'EUR_USD',
-        'GBP_USD',
-        'USD_JPY',
-        'EUR_JPY',
-        'GBP_JPY',
-        'AUD_USD'
+        'EUR_USD'
     ]
 
     SEQ_LENGTH = 50  # Longitud de secuencias para LSTM/GRU
     NORM_WINDOW = 200  # Ventana para normalización rolling
+
+    # Opciones de limpieza de archivos
+    LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
+    HACER_BACKUP = True              # True = Crea backup antes de borrar
 
     # Validar
     if not FEATURES_DIR.exists():
@@ -505,7 +569,9 @@ def main():
     ejecutor = EjecutorEstructuraMatricialTensorial(
         features_dir=FEATURES_DIR,
         output_dir=OUTPUT_DIR,
-        pares=PARES
+        pares=PARES,
+        limpiar_archivos_viejos=LIMPIAR_ARCHIVOS_VIEJOS,
+        hacer_backup=HACER_BACKUP
     )
 
     ejecutor.ejecutar_todos(
