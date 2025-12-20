@@ -41,6 +41,7 @@ env/
 # Logs
 *.log
 *.txt
+!requirements.txt
 
 # Jupyter Notebook
 .ipynb_checkpoints
