@@ -501,7 +501,7 @@ def main():
 
     # Parámetros
     TIMEFRAME = 'M15'
-    PARES = None  # None = auto-detectar todos los pares disponibles
+    PARES = ['EUR_USD']  # Lista de pares a procesar (None = auto-detectar)
 
     # Crear ejecutor
     ejecutor = EjecutorEstrategiaEmergente(
