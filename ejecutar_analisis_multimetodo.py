@@ -204,15 +204,22 @@ class EjecutorAnalisisMultimetodo:
                 logger.error("No se puede calcular retorno: falta columna 'close'")
                 return None, None, None, None
 
-        # Calcular retorno futuro
-        retorno_futuro = close.shift(-self.horizonte_prediccion).pct_change()
-        retorno_futuro = retorno_futuro.shift(-1)  # Alinear con el período actual
+        # Calcular retorno futuro: (precio_futuro - precio_actual) / precio_actual
+        precio_futuro = close.shift(-self.horizonte_prediccion)
+        retorno_futuro = (precio_futuro - close) / close
 
         # Agregar retorno al dataframe
         df['retorno_objetivo'] = retorno_futuro
 
-        # Eliminar filas con NaN en retorno objetivo
+        # Eliminar filas con NaN o infinitos en retorno objetivo
         df_clean = df.dropna(subset=['retorno_objetivo'])
+        # Filtrar infinitos
+        mask_finito = np.isfinite(df_clean['retorno_objetivo'])
+        df_clean = df_clean[mask_finito]
+
+        if len(df_clean) == 0:
+            logger.error("No quedan datos válidos después de filtrar NaN e infinitos")
+            return None, None, None, None
 
         # Separar features (X) y objetivo (y)
         y = df_clean['retorno_objetivo'].values
@@ -232,16 +239,27 @@ class EjecutorAnalisisMultimetodo:
         X = X[:, valid_indices]
         nombres_features = valid_features
 
-        # Eliminar filas con cualquier NaN
-        mask_valid = ~np.any(np.isnan(X), axis=1)
+        # Eliminar filas con cualquier NaN o infinito
+        mask_valid = ~np.any(np.isnan(X), axis=1) & ~np.any(np.isinf(X), axis=1) & np.isfinite(y)
         X = X[mask_valid]
         y = y[mask_valid]
+
+        # Validación final
+        if len(y) == 0:
+            logger.error("No quedan muestras válidas después de limpieza")
+            return None, None, None, None
+
+        if not np.all(np.isfinite(y)):
+            logger.error(f"Variable objetivo contiene valores no finitos: inf={np.sum(np.isinf(y))}, nan={np.sum(np.isnan(y))}")
+            return None, None, None, None
 
         logger.info(f"\nDatos preparados:")
         logger.info(f"  Features válidos: {len(nombres_features):,}")
         logger.info(f"  Muestras válidas: {len(y):,}")
         logger.info(f"  Retorno medio: {np.mean(y)*100:.4f}%")
         logger.info(f"  Retorno std: {np.std(y)*100:.4f}%")
+        logger.info(f"  Retorno min: {np.min(y)*100:.4f}%")
+        logger.info(f"  Retorno max: {np.max(y)*100:.4f}%")
 
         return X, y, nombres_features, df_clean
 
