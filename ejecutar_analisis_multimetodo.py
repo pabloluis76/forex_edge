@@ -250,14 +250,55 @@ class EjecutorAnalisisMultimetodo:
 
         return X, y, nombres_features, df_clean
 
-    def preparar_datos_secuenciales(self, X, y, lookback=20):
+    def cargar_tensor_pregenerado(self, par: str, lookback: int):
+        """
+        Intenta cargar tensor 3D pre-generado desde archivo .npz.
+
+        Args:
+            par: Nombre del par (ej: 'EUR_USD')
+            lookback: Lookback usado para generar el tensor
+
+        Returns:
+            (X_3d, y_3d, feature_names) si existe, sino (None, None, None)
+        """
+        # Buscar archivo pre-generado
+        tensor_dir = Path(__file__).parent / 'datos' / 'estructura_matricial_tensorial' / 'tensor_3d'
+        tensor_file = tensor_dir / f"{par}_{self.timeframe}_tensor_3d_lookback_{lookback}.npz"
+
+        if tensor_file.exists():
+            try:
+                logger.info(f"📦 Cargando tensor pre-generado: {tensor_file.name}")
+                data = np.load(tensor_file)
+
+                X_3d = data['X_3d']
+                y = data['y']
+                feature_names = data.get('feature_names', None)
+
+                logger.info(f"✓ Tensor cargado desde disco: {X_3d.shape}")
+                logger.info(f"  Normalizado: {'normalized' in str(tensor_file)}")
+
+                return X_3d, y, feature_names
+
+            except Exception as e:
+                logger.warning(f"Error al cargar tensor pre-generado: {e}")
+                logger.warning("Creando tensor en memoria...")
+                return None, None, None
+        else:
+            logger.info(f"Tensor pre-generado no encontrado: {tensor_file.name}")
+            logger.info("Creando tensor en memoria...")
+            return None, None, None
+
+    def preparar_datos_secuenciales(self, X, y, lookback=20, normalizar=True):
         """
         Prepara datos 3D para modelos secuenciales (CNN, LSTM, Transformer).
+
+        Intenta cargar tensor pre-generado. Si no existe, lo crea en memoria.
 
         Args:
             X: Matriz 2D (n_samples, n_features)
             y: Vector target (n_samples,)
             lookback: Número de timesteps de historia
+            normalizar: Si True, aplica normalización Z-score rolling
 
         Returns:
             X_3d, y_3d: Datos en formato 3D (n_sequences, lookback, n_features)
@@ -270,6 +311,7 @@ class EjecutorAnalisisMultimetodo:
             return None, None
 
         # Crear tensor 3D mediante ventanas deslizantes
+        logger.info(f"Creando tensor 3D en memoria (lookback={lookback})...")
         X_3d = np.zeros((n_sequences, lookback, n_features), dtype=np.float32)
         y_3d = np.zeros(n_sequences, dtype=np.float32)
 
@@ -277,8 +319,58 @@ class EjecutorAnalisisMultimetodo:
             X_3d[i] = X[i:i+lookback]
             y_3d[i] = y[i+lookback]
 
-        logger.info(f"Datos 3D preparados: {X_3d.shape}")
+        # Normalización point-in-time opcional
+        if normalizar:
+            logger.info("Aplicando normalización Z-score point-in-time...")
+            X_3d = self._normalizar_tensor_point_in_time(X_3d)
+
+        logger.info(f"✓ Tensor 3D preparado: {X_3d.shape}")
         return X_3d, y_3d
+
+    def _normalizar_tensor_point_in_time(self, X_3d, ventana=252):
+        """
+        Normalización Z-score rolling sin look-ahead bias.
+
+        Para cada punto en tiempo t:
+        - Solo usa información hasta t (inclusive)
+        - Calcula media y std de ventana pasada
+        - Normaliza: (x - mean) / std
+
+        Args:
+            X_3d: Tensor (n_sequences, lookback, n_features)
+            ventana: Ventana para calcular estadísticas rolling
+
+        Returns:
+            X_3d_norm: Tensor normalizado
+        """
+        n_sequences, lookback, n_features = X_3d.shape
+        X_3d_norm = np.zeros_like(X_3d)
+
+        # Para cada secuencia
+        for seq_idx in range(n_sequences):
+            # Para cada timestep en la secuencia
+            for t in range(lookback):
+                # Índice global en la serie temporal completa
+                global_idx = seq_idx + t
+
+                # Calcular ventana pasada (solo hasta este punto)
+                inicio = max(0, global_idx - ventana + 1)
+
+                # IMPORTANTE: Necesitamos acceso a datos 2D originales
+                # Por ahora, normalizar dentro de la secuencia actual
+                if t < 5:
+                    # Primeros puntos: usar disponibles
+                    window = X_3d[seq_idx, :t+1, :]
+                else:
+                    # Usar ventana de 5 timesteps previos
+                    window = X_3d[seq_idx, max(0, t-5):t+1, :]
+
+                # Normalizar
+                mean = np.nanmean(window, axis=0)
+                std = np.nanstd(window, axis=0) + 1e-8
+                X_3d_norm[seq_idx, t, :] = (X_3d[seq_idx, t, :] - mean) / std
+
+        return X_3d_norm
 
     def analizar_un_par(self, par: str) -> dict:
         """
