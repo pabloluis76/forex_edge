@@ -56,8 +56,15 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
+# Test files
+test_*.py
+*_test.py
+tests/
+pruebas/
+
 # Data files (too large for GitHub)
 datos/
 *.csv
 *.parquet
 *.npz
+*.tar.gz

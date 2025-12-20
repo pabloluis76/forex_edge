@@ -427,7 +427,7 @@ class EjecutorAnalisisMultimetodo:
             # Information Coefficient
             df_ic = analizador_est.calcular_information_coefficient(
                 metodo='spearman',
-                correccion_multiple=True
+                correccion_multipletests=True
             )
 
             # Guardar top features por IC
