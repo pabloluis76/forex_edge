@@ -250,6 +250,36 @@ class EjecutorAnalisisMultimetodo:
 
         return X, y, nombres_features, df_clean
 
+    def preparar_datos_secuenciales(self, X, y, lookback=20):
+        """
+        Prepara datos 3D para modelos secuenciales (CNN, LSTM, Transformer).
+
+        Args:
+            X: Matriz 2D (n_samples, n_features)
+            y: Vector target (n_samples,)
+            lookback: Número de timesteps de historia
+
+        Returns:
+            X_3d, y_3d: Datos en formato 3D (n_sequences, lookback, n_features)
+        """
+        n_samples, n_features = X.shape
+        n_sequences = n_samples - lookback
+
+        if n_sequences <= 0:
+            logger.warning(f"No hay suficientes datos para lookback={lookback}")
+            return None, None
+
+        # Crear tensor 3D mediante ventanas deslizantes
+        X_3d = np.zeros((n_sequences, lookback, n_features), dtype=np.float32)
+        y_3d = np.zeros(n_sequences, dtype=np.float32)
+
+        for i in range(n_sequences):
+            X_3d[i] = X[i:i+lookback]
+            y_3d[i] = y[i+lookback]
+
+        logger.info(f"Datos 3D preparados: {X_3d.shape}")
+        return X_3d, y_3d
+
     def analizar_un_par(self, par: str) -> dict:
         """
         Ejecuta análisis multi-método para un par.
@@ -395,9 +425,166 @@ class EjecutorAnalisisMultimetodo:
                 logger.info("D) DEEP LEARNING")
                 logger.info("="*80)
 
-                # TODO: Implementar cuando se requiera
-                logger.info("⚠️  Deep Learning deshabilitado en esta versión")
-                resultados_par['analisis']['deep_learning'] = None
+                try:
+                    from analisis_multi_metodo.deep_learning import ModelosDeepLearning
+
+                    # Parámetros
+                    LOOKBACK = 20  # Ventana temporal
+                    TEST_SIZE = 0.2
+                    EPOCHS = 50
+                    BATCH_SIZE = 64
+                    EARLY_STOPPING_PATIENCE = 10
+
+                    # Preparar datos 3D para modelos secuenciales
+                    logger.info(f"Preparando datos secuenciales (lookback={LOOKBACK})...")
+                    X_3d, y_3d = self.preparar_datos_secuenciales(X, y, lookback=LOOKBACK)
+
+                    if X_3d is None:
+                        logger.error("No se pudieron preparar datos 3D")
+                        resultados_par['analisis']['deep_learning'] = {'error': 'Datos insuficientes'}
+                    else:
+                        # Split train/test
+                        split_idx = int(len(X) * (1 - TEST_SIZE))
+                        split_idx_3d = int(len(X_3d) * (1 - TEST_SIZE))
+
+                        # Datos 2D para MLP
+                        X_train_2d, X_test_2d = X[:split_idx], X[split_idx:]
+                        y_train_2d, y_test_2d = y[:split_idx], y[split_idx:]
+
+                        # Datos 3D para CNN/LSTM/Transformer
+                        X_train_3d, X_test_3d = X_3d[:split_idx_3d], X_3d[split_idx_3d:]
+                        y_train_3d, y_test_3d = y_3d[:split_idx_3d], y_3d[split_idx_3d:]
+
+                        logger.info(f"Train 2D: {X_train_2d.shape}, Test 2D: {X_test_2d.shape}")
+                        logger.info(f"Train 3D: {X_train_3d.shape}, Test 3D: {X_test_3d.shape}")
+
+                        # Inicializar
+                        dl = ModelosDeepLearning()
+                        resultados_dl = {}
+
+                        # A) MLP (Multilayer Perceptron)
+                        logger.info("\n" + "-"*80)
+                        logger.info("A) MLP (Multilayer Perceptron)")
+                        logger.info("-"*80)
+                        try:
+                            modelo_mlp = dl.crear_mlp(
+                                n_features=X_train_2d.shape[1],
+                                capas_ocultas=[128, 64, 32],
+                                dropout=0.3,
+                                learning_rate=0.001
+                            )
+
+                            resultado_mlp = dl.entrenar_modelo(
+                                modelo_mlp,
+                                X_train_2d.astype(np.float32),
+                                y_train_2d.astype(np.float32),
+                                X_test_2d.astype(np.float32),
+                                y_test_2d.astype(np.float32),
+                                epochs=EPOCHS,
+                                batch_size=BATCH_SIZE,
+                                early_stopping_patience=EARLY_STOPPING_PATIENCE
+                            )
+
+                            resultados_dl['mlp'] = {
+                                'val_loss': float(resultado_mlp['val_loss']),
+                                'val_mae': float(resultado_mlp['val_mae']),
+                                'train_loss': float(resultado_mlp['train_loss'])
+                            }
+
+                            logger.info(f"✓ MLP completado: Val Loss={resultado_mlp['val_loss']:.6f}")
+                        except Exception as e:
+                            logger.error(f"Error en MLP: {e}")
+                            resultados_dl['mlp'] = {'error': str(e)}
+
+                        # B) CNN (Convolutional Neural Network)
+                        logger.info("\n" + "-"*80)
+                        logger.info("B) CNN (Convolutional Neural Network)")
+                        logger.info("-"*80)
+                        try:
+                            modelo_cnn = dl.crear_cnn(
+                                lookback=LOOKBACK,
+                                n_features=X_train_3d.shape[2],
+                                filtros=[32, 64],
+                                kernel_sizes=[5, 3],
+                                pool_sizes=[2, 2],
+                                dropout=0.3,
+                                learning_rate=0.001
+                            )
+
+                            resultado_cnn = dl.entrenar_modelo(
+                                modelo_cnn,
+                                X_train_3d,
+                                y_train_3d,
+                                X_test_3d,
+                                y_test_3d,
+                                epochs=EPOCHS,
+                                batch_size=BATCH_SIZE,
+                                early_stopping_patience=EARLY_STOPPING_PATIENCE
+                            )
+
+                            resultados_dl['cnn'] = {
+                                'val_loss': float(resultado_cnn['val_loss']),
+                                'val_mae': float(resultado_cnn['val_mae']),
+                                'train_loss': float(resultado_cnn['train_loss'])
+                            }
+
+                            logger.info(f"✓ CNN completado: Val Loss={resultado_cnn['val_loss']:.6f}")
+                        except Exception as e:
+                            logger.error(f"Error en CNN: {e}")
+                            resultados_dl['cnn'] = {'error': str(e)}
+
+                        # C) LSTM (Long Short-Term Memory)
+                        logger.info("\n" + "-"*80)
+                        logger.info("C) LSTM (Long Short-Term Memory)")
+                        logger.info("-"*80)
+                        try:
+                            modelo_lstm = dl.crear_lstm(
+                                lookback=LOOKBACK,
+                                n_features=X_train_3d.shape[2],
+                                lstm_units=[64, 32],
+                                dropout=0.3,
+                                learning_rate=0.001
+                            )
+
+                            resultado_lstm = dl.entrenar_modelo(
+                                modelo_lstm,
+                                X_train_3d,
+                                y_train_3d,
+                                X_test_3d,
+                                y_test_3d,
+                                epochs=EPOCHS,
+                                batch_size=BATCH_SIZE,
+                                early_stopping_patience=EARLY_STOPPING_PATIENCE
+                            )
+
+                            resultados_dl['lstm'] = {
+                                'val_loss': float(resultado_lstm['val_loss']),
+                                'val_mae': float(resultado_lstm['val_mae']),
+                                'train_loss': float(resultado_lstm['train_loss'])
+                            }
+
+                            logger.info(f"✓ LSTM completado: Val Loss={resultado_lstm['val_loss']:.6f}")
+                        except Exception as e:
+                            logger.error(f"Error en LSTM: {e}")
+                            resultados_dl['lstm'] = {'error': str(e)}
+
+                        # Guardar resultados DL
+                        resultados_par['analisis']['deep_learning'] = resultados_dl
+
+                        # Guardar resumen en JSON
+                        output_dl = self.output_dir / f"{par}_{self.timeframe}_analisis_DL.json"
+                        with open(output_dl, 'w') as f:
+                            json.dump(resultados_dl, f, indent=2)
+                        logger.info(f"\n✓ Resultados DL guardados: {output_dl}")
+
+                except ImportError as e:
+                    logger.error(f"TensorFlow no disponible: {e}")
+                    logger.error("Instala con: pip install tensorflow")
+                    resultados_par['analisis']['deep_learning'] = {'error': 'TensorFlow no instalado'}
+                except Exception as e:
+                    logger.error(f"Error en Deep Learning: {e}")
+                    logger.exception(e)
+                    resultados_par['analisis']['deep_learning'] = {'error': str(e)}
             else:
                 logger.info("\n⚠️  Deep Learning deshabilitado")
                 resultados_par['analisis']['deep_learning'] = None
@@ -544,11 +731,11 @@ def main():
 
     # Opciones de análisis
     HORIZONTE_PREDICCION = 1  # Predecir retorno 1 período adelante
-    USAR_DEEP_LEARNING = False  # True = Incluir análisis con DL (requiere TensorFlow)
+    USAR_DEEP_LEARNING = True  # True = Incluir análisis con DL (requiere TensorFlow)
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
-    HACER_BACKUP = True              # True = Crea backup antes de borrar
+    HACER_BACKUP = False             # False = NO crea backup (ahorra espacio)
 
     # Validar que existe el directorio de features
     if not FEATURES_DIR.exists():
