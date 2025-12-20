@@ -79,7 +79,7 @@ class EjecutorConsensoMetodos:
         horizonte_prediccion: int = 1,
         top_n_por_metodo: int = 100,
         limpiar_archivos_viejos: bool = True,
-        hacer_backup: bool = True
+        hacer_backup: bool = False
     ):
         """
         Inicializa el ejecutor.

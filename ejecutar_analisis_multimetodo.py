@@ -88,7 +88,7 @@ class EjecutorAnalisisMultimetodo:
         timeframe: str = 'M15',
         horizonte_prediccion: int = 1,
         limpiar_archivos_viejos: bool = True,
-        hacer_backup: bool = True,
+        hacer_backup: bool = False,
         usar_deep_learning: bool = False
     ):
         """

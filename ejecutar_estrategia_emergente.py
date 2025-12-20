@@ -43,7 +43,7 @@ class EjecutorEstrategiaEmergente:
         timeframe: str = 'M15',
         pares: Optional[List[str]] = None,
         limpiar_archivos_viejos: bool = True,
-        hacer_backup: bool = True,
+        hacer_backup: bool = False,
         verbose: bool = True
     ):
         """

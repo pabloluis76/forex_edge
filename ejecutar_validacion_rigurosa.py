@@ -91,7 +91,7 @@ class EjecutorValidacionRigurosa:
         n_bootstrap: int = 10000,
         n_permutations: int = 10000,
         limpiar_archivos_viejos: bool = True,
-        hacer_backup: bool = True
+        hacer_backup: bool = False
     ):
         """
         Inicializa el ejecutor.

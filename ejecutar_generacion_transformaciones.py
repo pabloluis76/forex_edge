@@ -336,7 +336,7 @@ def main():
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
-    HACER_BACKUP = True              # True = Crea backup antes de borrar
+    HACER_BACKUP = False             # False = NO crea backup (ahorra espacio)
 
     # Validar que existe el directorio de datos
     if not DATA_DIR.exists():
