@@ -52,6 +52,33 @@ from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
+
+def convert_numpy_types(obj):
+    """
+    Convierte recursivamente tipos numpy a tipos nativos de Python para JSON.
+
+    Args:
+        obj: Objeto a convertir
+
+    Returns:
+        Objeto con tipos nativos de Python
+    """
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
+
+
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -629,13 +656,23 @@ class EjecutorConsensoMetodos:
 
             # Guardar features aprobados
             if len(proceso.features_aprobados) > 0:
+                # Contar en cuántos métodos aparece cada feature
+                n_metodos_list = []
+                for feat in proceso.features_aprobados:
+                    count = 0
+                    for ranking in proceso.rankings.values():
+                        # Manejar tanto sets como DataFrames
+                        if isinstance(ranking, set):
+                            if feat in ranking:
+                                count += 1
+                        elif hasattr(ranking, 'values'):  # DataFrame
+                            if 'Feature' in ranking.columns and feat in ranking['Feature'].values:
+                                count += 1
+                    n_metodos_list.append(count)
+
                 df_aprobados = pd.DataFrame({
                     'feature': proceso.features_aprobados,
-                    'n_metodos_aprueban': [
-                        sum([feat in ranking['Feature'].values
-                             for ranking in proceso.rankings.values()])
-                        for feat in proceso.features_aprobados
-                    ]
+                    'n_metodos_aprueban': n_metodos_list
                 })
 
                 output_aprobados = self.aprobados_dir / f"{par}_{self.timeframe}_features_aprobados.csv"
@@ -655,8 +692,12 @@ class EjecutorConsensoMetodos:
             # GUARDAR RESUMEN CONSOLIDADO
             # ==========================================
             output_json = self.output_dir / f"{par}_{self.timeframe}_consenso_completo.json"
+
+            # Convertir tipos numpy a tipos nativos de Python para JSON
+            resultados_par_json = convert_numpy_types(resultados_par)
+
             with open(output_json, 'w') as f:
-                json.dump(resultados_par, f, indent=2, ensure_ascii=False)
+                json.dump(resultados_par_json, f, indent=2, ensure_ascii=False)
 
             fin = datetime.now()
             tiempo_total = (fin - inicio).total_seconds()
