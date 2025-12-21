@@ -641,7 +641,7 @@ class EjecutorConsensoMetodos:
                 logger.info(f"  ✓ Ranking {metodo} guardado")
 
             # PASO 2: Calcular intersecciones
-            proceso.paso2_calcular_intersecciones()
+            feature_counts, feature_metodos = proceso.paso2_calcular_intersecciones()
 
             logger.info(f"\nIntersecciones:")
             logger.info(f"  Consenso Fuerte: {len(proceso.consenso_fuerte)} features")
@@ -649,9 +649,9 @@ class EjecutorConsensoMetodos:
             logger.info(f"  Sin Consenso: {len(proceso.sin_consenso)} features")
 
             # PASO 3: Verificación cruzada
-            proceso.paso3_verificacion_cruzada(
-                verificar_estabilidad_temporal=True,
-                verificar_concordancia_ml=True
+            features_aprobados, features_rechazados = proceso.paso3_verificacion_cruzada(
+                feature_counts,
+                feature_metodos
             )
 
             # Guardar features aprobados
