@@ -471,7 +471,7 @@ class EjecutorAnalisisMultimetodo:
                 'ic_maximo': float(df_ic['IC'].max()),
                 'n_features_lasso': len(features_lasso_seleccionados),
                 'r2_lasso': float(resultado_lasso['R2']),
-                'pca_varianza_explicada_50': float(resultado_pca['varianza_explicada_acumulada'][49])
+                'pca_varianza_explicada_50': float(resultado_pca['varianza_acumulada'][49])
             }
 
             # ==========================================

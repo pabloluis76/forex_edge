@@ -354,11 +354,11 @@ class EjecutorConsensoMetodos:
         todos_features = set()
 
         if resultados_analisis['ic'] is not None:
-            todos_features.update(resultados_analisis['ic']['feature'].tolist())
+            todos_features.update(resultados_analisis['ic']['Feature'].tolist())
         if resultados_analisis['mi'] is not None:
-            todos_features.update(resultados_analisis['mi']['feature'].tolist())
+            todos_features.update(resultados_analisis['mi']['Feature'].tolist())
         if resultados_analisis['rf'] is not None:
-            todos_features.update(resultados_analisis['rf']['feature'].tolist())
+            todos_features.update(resultados_analisis['rf']['Feature'].tolist())
 
         todos_features = sorted(list(todos_features))
         logger.info(f"  Features únicos encontrados: {len(todos_features)}")
@@ -388,21 +388,21 @@ class EjecutorConsensoMetodos:
                 ic_col = None
 
             if ic_col:
-                features_ic = df_ic[df_ic[ic_col] > umbral_ic]['feature'].tolist()
+                features_ic = df_ic[df_ic[ic_col] > umbral_ic]['Feature'].tolist()
                 df_consenso.loc[df_consenso['feature'].isin(features_ic), 'voto_IC'] = True
                 logger.info(f"  IC: {len(features_ic)} features aprueban (|IC| > {umbral_ic})")
 
         # Evaluar MI
         if resultados_analisis['mi'] is not None:
             df_mi = resultados_analisis['mi']
-            features_mi = df_mi[df_mi['MI'] > umbral_mi]['feature'].tolist()
+            features_mi = df_mi[df_mi['MI'] > umbral_mi]['Feature'].tolist()
             df_consenso.loc[df_consenso['feature'].isin(features_mi), 'voto_MI'] = True
             logger.info(f"  MI: {len(features_mi)} features aprueban (MI > {umbral_mi})")
 
         # Evaluar RF
         if resultados_analisis['rf'] is not None:
             df_rf = resultados_analisis['rf']
-            features_rf = df_rf.head(top_rf)['feature'].tolist()
+            features_rf = df_rf.head(top_rf)['Feature'].tolist()
             df_consenso.loc[df_consenso['feature'].isin(features_rf), 'voto_RF'] = True
             logger.info(f"  RF: {len(features_rf)} features aprueban (top {top_rf})")
 
@@ -625,7 +625,7 @@ class EjecutorConsensoMetodos:
                 df_aprobados = pd.DataFrame({
                     'feature': proceso.features_aprobados,
                     'n_metodos_aprueban': [
-                        sum([feat in ranking['feature'].values
+                        sum([feat in ranking['Feature'].values
                              for ranking in proceso.rankings.values()])
                         for feat in proceso.features_aprobados
                     ]
