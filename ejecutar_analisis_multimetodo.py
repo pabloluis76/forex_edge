@@ -204,7 +204,7 @@ class EjecutorAnalisisMultimetodo:
 
         # Filtrar por IC y p-value
         df_ic_filtrado = df_ic[
-            (df_ic['|IC|'] > ic_threshold) &
+            (df_ic['abs_IC'] > ic_threshold) &
             (df_ic['p_value_corrected'] < p_value_threshold)
         ].copy()
 
@@ -228,10 +228,10 @@ class EjecutorAnalisisMultimetodo:
         else:
             features_seleccionados = list(features_consenso)[:max_features]
 
-        # Si aún hay demasiados, ordenar por |IC| y tomar top
+        # Si aún hay demasiados, ordenar por abs_IC y tomar top
         if len(features_seleccionados) > max_features:
             df_ranking = df_ic[df_ic['Feature'].isin(features_seleccionados)].copy()
-            df_ranking = df_ranking.sort_values('|IC|', ascending=False)
+            df_ranking = df_ranking.sort_values('abs_IC', ascending=False)
             features_seleccionados = df_ranking.head(max_features)['Feature'].tolist()
 
         logger.info(f"\n✓ FEATURES FINALES SELECCIONADOS: {len(features_seleccionados)}")
@@ -247,7 +247,7 @@ class EjecutorAnalisisMultimetodo:
 
         # Crear DataFrame de selección
         df_seleccion = df_ic[df_ic['Feature'].isin(features_seleccionados)].copy()
-        df_seleccion = df_seleccion.sort_values('|IC|', ascending=False)
+        df_seleccion = df_seleccion.sort_values('abs_IC', ascending=False)
 
         logger.info(f"\n📊 Top 10 features seleccionados:")
         for idx, row in df_seleccion.head(10).iterrows():
@@ -571,7 +571,7 @@ class EjecutorAnalisisMultimetodo:
             logger.info("="*80)
 
             # Advertir si señal es muy débil
-            ic_max = df_ic['|IC|'].max()
+            ic_max = df_ic['abs_IC'].max()
             r2_lasso = resultado_lasso['R2']
 
             if ic_max < 0.03:
