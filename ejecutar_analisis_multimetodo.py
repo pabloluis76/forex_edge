@@ -53,6 +53,32 @@ from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
+
+def convert_numpy_types(obj):
+    """
+    Convierte recursivamente tipos numpy a tipos nativos de Python para JSON.
+
+    Args:
+        obj: Objeto a convertir
+
+    Returns:
+        Objeto con tipos nativos de Python
+    """
+    if isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
+
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -944,8 +970,12 @@ class EjecutorAnalisisMultimetodo:
             # GUARDAR RESULTADOS CONSOLIDADOS
             # ==========================================
             output_json = self.output_dir / f"{par}_{self.timeframe}_analisis_completo.json"
+
+            # Convertir tipos numpy a tipos nativos de Python para JSON
+            resultados_par_json = convert_numpy_types(resultados_par)
+
             with open(output_json, 'w') as f:
-                json.dump(resultados_par, f, indent=2, ensure_ascii=False)
+                json.dump(resultados_par_json, f, indent=2, ensure_ascii=False)
 
             fin = datetime.now()
             tiempo_total = (fin - inicio).total_seconds()
