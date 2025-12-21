@@ -650,8 +650,8 @@ class EjecutorAnalisisMultimetodo:
                 'r2_random_forest': float(r2_rf),
                 'r2_gradient_boosting': float(r2_gb),
                 'top_10_features_rf': resultado_rf['feature_importance'].head(10)['Feature'].tolist(),
-                'overfitting_detectado': bool(r2_rf < 0 or r2_gb < 0),
-                'senal_muy_debil': bool(r2_rf < 0.01 or r2_gb < 0.01)
+                'overfitting_detectado': bool(float(r2_rf) < 0 or float(r2_gb) < 0),
+                'senal_muy_debil': bool(float(r2_rf) < 0.01 or float(r2_gb) < 0.01)
             }
 
             # ==========================================
