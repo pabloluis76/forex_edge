@@ -506,9 +506,9 @@ class EjecutorAnalisisMultimetodo:
             )
 
             resultados_par['analisis']['machine_learning'] = {
-                'r2_random_forest': float(resultado_rf['r2_test']),
-                'r2_gradient_boosting': float(resultado_gb['r2_test']),
-                'top_10_features_rf': resultado_rf['feature_importance'].head(10)['feature'].tolist()
+                'r2_random_forest': float(resultado_rf['metricas']['r2_test']),
+                'r2_gradient_boosting': float(resultado_gb['metricas']['r2_test']),
+                'top_10_features_rf': resultado_rf['feature_importance'].head(10)['Feature'].tolist()
             }
 
             # ==========================================
