@@ -470,7 +470,7 @@ class EjecutorAnalisisMultimetodo:
                 'n_features_significativos_ic': len(df_ic[df_ic['p_value_corrected'] < 0.05]),
                 'ic_maximo': float(df_ic['IC'].max()),
                 'n_features_lasso': len(features_lasso_seleccionados),
-                'r2_lasso': float(resultado_lasso['r2']),
+                'r2_lasso': float(resultado_lasso['R2']),
                 'pca_varianza_explicada_50': float(resultado_pca['varianza_explicada_acumulada'][49])
             }
 
