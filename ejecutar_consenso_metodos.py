@@ -603,7 +603,14 @@ class EjecutorConsensoMetodos:
             # Guardar rankings
             for metodo, ranking in proceso.rankings.items():
                 output_ranking = self.rankings_dir / f"{par}_{self.timeframe}_ranking_{metodo}.csv"
-                ranking.to_csv(output_ranking, index=False)
+
+                # Convertir set a DataFrame si es necesario
+                if isinstance(ranking, set):
+                    df_ranking = pd.DataFrame({'Feature': list(ranking)})
+                    df_ranking.to_csv(output_ranking, index=False)
+                else:
+                    ranking.to_csv(output_ranking, index=False)
+
                 logger.info(f"  ✓ Ranking {metodo} guardado")
 
             # PASO 2: Calcular intersecciones
