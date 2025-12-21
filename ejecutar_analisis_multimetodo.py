@@ -166,6 +166,95 @@ class EjecutorAnalisisMultimetodo:
 
         logger.info(f"✓ Limpieza completada: {len(archivos_existentes)} archivos eliminados\n")
 
+    def seleccionar_features_robustos(self, X, y, nombres_features,
+                                      df_ic, df_mi,
+                                      ic_threshold=0.02,
+                                      p_value_threshold=0.001,
+                                      max_features=100):
+        """
+        Selecciona features robustos basado en IC y MI.
+
+        CRITERIOS DE SELECCIÓN:
+        1. |IC| > ic_threshold (default: 0.02)
+        2. p-value < p_value_threshold (default: 0.001)
+        3. MI significativo (top percentil)
+        4. Máximo max_features features
+
+        Args:
+            X: Matriz de features
+            y: Target
+            nombres_features: Lista de nombres
+            df_ic: DataFrame con IC
+            df_mi: DataFrame con MI
+            ic_threshold: Umbral mínimo de |IC|
+            p_value_threshold: Umbral máximo de p-value
+            max_features: Número máximo de features a retornar
+
+        Returns:
+            X_seleccionado, nombres_seleccionados, df_seleccion
+        """
+        logger.info("\n" + "="*80)
+        logger.info("SELECCIÓN ROBUSTA DE FEATURES")
+        logger.info("="*80)
+        logger.info(f"Features iniciales: {len(nombres_features):,}")
+        logger.info(f"Criterios:")
+        logger.info(f"  • |IC| > {ic_threshold}")
+        logger.info(f"  • p-value < {p_value_threshold}")
+        logger.info(f"  • Máximo: {max_features} features")
+
+        # Filtrar por IC y p-value
+        df_ic_filtrado = df_ic[
+            (df_ic['|IC|'] > ic_threshold) &
+            (df_ic['p_value_corrected'] < p_value_threshold)
+        ].copy()
+
+        features_ic = set(df_ic_filtrado['Feature'].tolist())
+        logger.info(f"\n✓ Features con IC significativo: {len(features_ic)}")
+
+        # Filtrar por MI (top percentil)
+        mi_percentile_90 = df_mi['MI'].quantile(0.90)
+        df_mi_filtrado = df_mi[df_mi['MI'] > mi_percentile_90].copy()
+        features_mi = set(df_mi_filtrado['Feature'].tolist())
+        logger.info(f"✓ Features con MI alto (>P90): {len(features_mi)}")
+
+        # Consenso: features que aparecen en ambos
+        features_consenso = features_ic.intersection(features_mi)
+        logger.info(f"✓ Features en CONSENSO (IC + MI): {len(features_consenso)}")
+
+        # Si hay muy pocos features en consenso, usar solo IC
+        if len(features_consenso) < 20:
+            logger.warning(f"⚠️  Consenso muy bajo ({len(features_consenso)}), usando solo IC")
+            features_seleccionados = list(features_ic)[:max_features]
+        else:
+            features_seleccionados = list(features_consenso)[:max_features]
+
+        # Si aún hay demasiados, ordenar por |IC| y tomar top
+        if len(features_seleccionados) > max_features:
+            df_ranking = df_ic[df_ic['Feature'].isin(features_seleccionados)].copy()
+            df_ranking = df_ranking.sort_values('|IC|', ascending=False)
+            features_seleccionados = df_ranking.head(max_features)['Feature'].tolist()
+
+        logger.info(f"\n✓ FEATURES FINALES SELECCIONADOS: {len(features_seleccionados)}")
+        logger.info(f"  Reducción: {len(nombres_features):,} → {len(features_seleccionados)}")
+        logger.info(f"  Ratio: {100 * len(features_seleccionados) / len(nombres_features):.1f}%")
+
+        # Filtrar X para quedarnos solo con los features seleccionados
+        indices_seleccionados = [i for i, nombre in enumerate(nombres_features)
+                                if nombre in features_seleccionados]
+
+        X_seleccionado = X[:, indices_seleccionados]
+        nombres_seleccionados = [nombres_features[i] for i in indices_seleccionados]
+
+        # Crear DataFrame de selección
+        df_seleccion = df_ic[df_ic['Feature'].isin(features_seleccionados)].copy()
+        df_seleccion = df_seleccion.sort_values('|IC|', ascending=False)
+
+        logger.info(f"\n📊 Top 10 features seleccionados:")
+        for idx, row in df_seleccion.head(10).iterrows():
+            logger.info(f"  {row['Feature']}: IC={row['IC']:.4f}, p={row['p_value_corrected']:.2e}")
+
+        return X_seleccionado, nombres_seleccionados, df_seleccion
+
     def cargar_features_y_preparar_datos(self, par: str) -> tuple:
         """
         Carga features y prepara X, y para análisis.
@@ -475,13 +564,47 @@ class EjecutorAnalisisMultimetodo:
             }
 
             # ==========================================
-            # B) MACHINE LEARNING
+            # SELECCIÓN ROBUSTA DE FEATURES
             # ==========================================
             logger.info("\n" + "="*80)
-            logger.info("B) MACHINE LEARNING")
+            logger.info("SELECCIÓN ROBUSTA DE FEATURES (ANTI-OVERFITTING)")
             logger.info("="*80)
 
-            analizador_ml = AnalizadorML(X, y, nombres_features)
+            # Advertir si señal es muy débil
+            ic_max = df_ic['|IC|'].max()
+            r2_lasso = resultado_lasso['R2']
+
+            if ic_max < 0.03:
+                logger.warning(f"⚠️  SEÑAL MUY DÉBIL DETECTADA:")
+                logger.warning(f"   IC máximo: {ic_max:.4f} (< 0.03)")
+                logger.warning(f"   R² Lasso: {r2_lasso:.6f}")
+                logger.warning(f"   Esto es NORMAL en forex - mercado muy eficiente")
+                logger.warning(f"   Los modelos ML pueden overfittear fácilmente")
+
+            # Seleccionar features robustos
+            X_seleccionado, nombres_seleccionados, df_seleccion = self.seleccionar_features_robustos(
+                X, y, nombres_features,
+                df_ic, df_mi,
+                ic_threshold=0.02,
+                p_value_threshold=0.001,
+                max_features=100
+            )
+
+            # Guardar features seleccionados
+            output_seleccion = self.output_dir / f"{par}_{self.timeframe}_features_seleccionados.csv"
+            df_seleccion.to_csv(output_seleccion, index=False)
+            logger.info(f"\n✓ Features seleccionados guardados: {output_seleccion}")
+
+            resultados_par['n_features_seleccionados'] = len(nombres_seleccionados)
+
+            # ==========================================
+            # B) MACHINE LEARNING (con features seleccionados)
+            # ==========================================
+            logger.info("\n" + "="*80)
+            logger.info("B) MACHINE LEARNING (con features seleccionados)")
+            logger.info("="*80)
+
+            analizador_ml = AnalizadorML(X_seleccionado, y, nombres_seleccionados)
 
             # Random Forest
             resultado_rf = analizador_ml.entrenar_random_forest(
@@ -505,10 +628,30 @@ class EjecutorAnalisisMultimetodo:
                 test_size=0.2
             )
 
+            # Advertir si R² es muy bajo o negativo
+            r2_rf = resultado_rf['metricas']['r2_test']
+            r2_gb = resultado_gb['metricas']['r2_test']
+
+            if r2_rf < 0.01 or r2_gb < 0.01:
+                logger.warning(f"\n⚠️  R² MUY BAJO EN MACHINE LEARNING:")
+                logger.warning(f"   Random Forest R² test: {r2_rf:.6f}")
+                logger.warning(f"   Gradient Boosting R² test: {r2_gb:.6f}")
+                logger.warning(f"   Señal predictiva muy débil - normal en forex eficiente")
+                logger.warning(f"   NO USAR estos modelos para trading real sin validación adicional")
+
+            if r2_rf < 0 or r2_gb < 0:
+                logger.error(f"\n❌ R² NEGATIVO - OVERFITTING SEVERO DETECTADO:")
+                logger.error(f"   Random Forest R² test: {r2_rf:.6f}")
+                logger.error(f"   Gradient Boosting R² test: {r2_gb:.6f}")
+                logger.error(f"   El modelo es PEOR que predecir la media")
+                logger.error(f"   Reduce max_depth o usa menos features")
+
             resultados_par['analisis']['machine_learning'] = {
-                'r2_random_forest': float(resultado_rf['metricas']['r2_test']),
-                'r2_gradient_boosting': float(resultado_gb['metricas']['r2_test']),
-                'top_10_features_rf': resultado_rf['feature_importance'].head(10)['Feature'].tolist()
+                'r2_random_forest': float(r2_rf),
+                'r2_gradient_boosting': float(r2_gb),
+                'top_10_features_rf': resultado_rf['feature_importance'].head(10)['Feature'].tolist(),
+                'overfitting_detectado': bool(r2_rf < 0 or r2_gb < 0),
+                'senal_muy_debil': bool(r2_rf < 0.01 or r2_gb < 0.01)
             }
 
             # ==========================================
@@ -546,18 +689,24 @@ class EjecutorAnalisisMultimetodo:
                     from analisis_multi_metodo.deep_learning import ModelosDeepLearning
 
                     # Parámetros
-                    LOOKBACK = 20  # Ventana temporal
+                    LOOKBACK = 10  # Reducido de 20 a 10 para reducir memoria
                     TEST_SIZE = 0.2
                     EPOCHS = 50
                     BATCH_SIZE = 64
                     EARLY_STOPPING_PATIENCE = 10
 
-                    # Preparar datos 3D para modelos secuenciales
-                    logger.info(f"Preparando datos secuenciales (lookback={LOOKBACK})...")
+                    logger.info(f"\n📌 CONFIGURACIÓN DEEP LEARNING:")
+                    logger.info(f"   Lookback: {LOOKBACK} (reducido para optimizar memoria)")
+                    logger.info(f"   Features: {len(nombres_seleccionados)} (selección robusta)")
+                    logger.info(f"   Batch size: {BATCH_SIZE}")
+                    logger.info(f"   Epochs máx: {EPOCHS}")
+
+                    # Preparar datos 3D para modelos secuenciales (con features seleccionados)
+                    logger.info(f"\nPreparando datos secuenciales (lookback={LOOKBACK})...")
                     # IMPORTANTE: Deep Learning requiere normalización obligatoria
                     logger.info("Preparando datos 3D con normalización point-in-time...")
                     X_3d, y_3d = self.preparar_datos_secuenciales(
-                        X, y,
+                        X_seleccionado, y,  # Usar features seleccionados
                         lookback=LOOKBACK,
                         normalizar=True  # Obligatorio para DL
                     )
@@ -567,7 +716,7 @@ class EjecutorAnalisisMultimetodo:
                         resultados_par['analisis']['deep_learning'] = {'error': 'Datos insuficientes'}
                     else:
                         # Split train/test
-                        split_idx = int(len(X) * (1 - TEST_SIZE))
+                        split_idx = int(len(X_seleccionado) * (1 - TEST_SIZE))
                         split_idx_3d = int(len(X_3d) * (1 - TEST_SIZE))
 
                         # Datos 2D para MLP - NORMALIZAR usando StandardScaler
@@ -575,8 +724,8 @@ class EjecutorAnalisisMultimetodo:
                         from sklearn.preprocessing import StandardScaler
                         scaler_2d = StandardScaler()
 
-                        X_train_2d = X[:split_idx]
-                        X_test_2d = X[split_idx:]
+                        X_train_2d = X_seleccionado[:split_idx]
+                        X_test_2d = X_seleccionado[split_idx:]
                         y_train_2d = y[:split_idx]
                         y_test_2d = y[split_idx:]
 
@@ -623,6 +772,18 @@ class EjecutorAnalisisMultimetodo:
                                 early_stopping_patience=EARLY_STOPPING_PATIENCE
                             )
 
+                            # Calcular R² out-of-sample
+                            from sklearn.metrics import r2_score
+                            y_pred_test_mlp = modelo_mlp.predict(X_test_2d.astype(np.float32), verbose=0).flatten()
+                            r2_test_mlp = r2_score(y_test_2d, y_pred_test_mlp)
+
+                            logger.info(f"   📊 R² TEST: {r2_test_mlp:.6f}")
+
+                            if r2_test_mlp < 0:
+                                logger.warning(f"   ⚠️  R² negativo - modelo peor que predecir la media")
+                            elif r2_test_mlp < 0.01:
+                                logger.warning(f"   ⚠️  R² muy bajo - señal predictiva débil")
+
                             # Extraer feature importance del MLP
                             # Usar magnitud de pesos de la capa de entrada
                             try:
@@ -653,10 +814,11 @@ class EjecutorAnalisisMultimetodo:
                                 'val_loss': float(resultado_mlp['val_loss']),
                                 'val_mae': float(resultado_mlp['val_mae']),
                                 'train_loss': float(resultado_mlp['train_loss']),
+                                'r2_test': float(r2_test_mlp),
                                 'top_features': top_100_mlp
                             }
 
-                            logger.info(f"✓ MLP completado: Val Loss={resultado_mlp['val_loss']:.6f}")
+                            logger.info(f"✓ MLP completado: Val Loss={resultado_mlp['val_loss']:.6f}, R² Test={r2_test_mlp:.6f}")
                         except Exception as e:
                             logger.error(f"Error en MLP: {e}")
                             resultados_dl['mlp'] = {'error': str(e)}
@@ -687,13 +849,25 @@ class EjecutorAnalisisMultimetodo:
                                 early_stopping_patience=EARLY_STOPPING_PATIENCE
                             )
 
+                            # Calcular R² out-of-sample para CNN
+                            y_pred_test_cnn = modelo_cnn.predict(X_test_3d, verbose=0).flatten()
+                            r2_test_cnn = r2_score(y_test_3d, y_pred_test_cnn)
+
+                            logger.info(f"   📊 R² TEST: {r2_test_cnn:.6f}")
+
+                            if r2_test_cnn < 0:
+                                logger.warning(f"   ⚠️  R² negativo - modelo peor que predecir la media")
+                            elif r2_test_cnn < 0.01:
+                                logger.warning(f"   ⚠️  R² muy bajo - señal predictiva débil")
+
                             resultados_dl['cnn'] = {
                                 'val_loss': float(resultado_cnn['val_loss']),
                                 'val_mae': float(resultado_cnn['val_mae']),
-                                'train_loss': float(resultado_cnn['train_loss'])
+                                'train_loss': float(resultado_cnn['train_loss']),
+                                'r2_test': float(r2_test_cnn)
                             }
 
-                            logger.info(f"✓ CNN completado: Val Loss={resultado_cnn['val_loss']:.6f}")
+                            logger.info(f"✓ CNN completado: Val Loss={resultado_cnn['val_loss']:.6f}, R² Test={r2_test_cnn:.6f}")
                         except Exception as e:
                             logger.error(f"Error en CNN: {e}")
                             resultados_dl['cnn'] = {'error': str(e)}
@@ -722,13 +896,25 @@ class EjecutorAnalisisMultimetodo:
                                 early_stopping_patience=EARLY_STOPPING_PATIENCE
                             )
 
+                            # Calcular R² out-of-sample para LSTM
+                            y_pred_test_lstm = modelo_lstm.predict(X_test_3d, verbose=0).flatten()
+                            r2_test_lstm = r2_score(y_test_3d, y_pred_test_lstm)
+
+                            logger.info(f"   📊 R² TEST: {r2_test_lstm:.6f}")
+
+                            if r2_test_lstm < 0:
+                                logger.warning(f"   ⚠️  R² negativo - modelo peor que predecir la media")
+                            elif r2_test_lstm < 0.01:
+                                logger.warning(f"   ⚠️  R² muy bajo - señal predictiva débil")
+
                             resultados_dl['lstm'] = {
                                 'val_loss': float(resultado_lstm['val_loss']),
                                 'val_mae': float(resultado_lstm['val_mae']),
-                                'train_loss': float(resultado_lstm['train_loss'])
+                                'train_loss': float(resultado_lstm['train_loss']),
+                                'r2_test': float(r2_test_lstm)
                             }
 
-                            logger.info(f"✓ LSTM completado: Val Loss={resultado_lstm['val_loss']:.6f}")
+                            logger.info(f"✓ LSTM completado: Val Loss={resultado_lstm['val_loss']:.6f}, R² Test={r2_test_lstm:.6f}")
                         except Exception as e:
                             logger.error(f"Error en LSTM: {e}")
                             resultados_dl['lstm'] = {'error': str(e)}
