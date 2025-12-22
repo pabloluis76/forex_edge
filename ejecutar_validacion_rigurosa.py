@@ -377,14 +377,14 @@ class EjecutorValidacionRigurosa:
                 ic, _ = spearmanr(datos, y[:len(datos)])
                 return ic
 
-            resultado_ic_bootstrap = bootstrap.calcular_intervalo(
+            resultado_ic_bootstrap = bootstrap.bootstrap_metrica(
                 metrica_func=calc_ic,
                 nombre_metrica='IC'
             )
 
             ic_medio = resultado_ic_bootstrap['media']
-            ic_ci_lower = resultado_ic_bootstrap['ci_lower']
-            ic_ci_upper = resultado_ic_bootstrap['ci_upper']
+            ic_ci_lower = resultado_ic_bootstrap['ic_lower']
+            ic_ci_upper = resultado_ic_bootstrap['ic_upper']
 
             logger.info(f"IC medio (bootstrap): {ic_medio:.4f}")
             logger.info(f"IC 95% CI: [{ic_ci_lower:.4f}, {ic_ci_upper:.4f}]")
@@ -420,12 +420,12 @@ class EjecutorValidacionRigurosa:
             )
 
             # Calcular test
-            resultado_perm = perm_test.calcular_permutation_test(
+            resultado_perm = perm_test.permutation_test_metrica(
                 metrica_func=lambda y_t, y_p: spearmanr(y_p, y_t)[0],
                 nombre_metrica='IC'
             )
 
-            ic_perm = resultado_perm['metrica_real']
+            ic_perm = resultado_perm['valor_real']
             p_value_perm = resultado_perm['p_value']
             z_score_perm = resultado_perm['z_score']
 
