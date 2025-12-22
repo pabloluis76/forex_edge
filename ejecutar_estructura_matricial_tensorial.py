@@ -550,7 +550,12 @@ def main():
     OUTPUT_DIR = BASE_DIR / 'datos' / 'estructura_matricial_tensorial'
 
     PARES = [
-        'EUR_USD'
+        'EUR_USD',
+        'GBP_USD',
+        'USD_JPY',
+        'EUR_JPY',
+        'GBP_JPY',
+        'AUD_USD'
     ]
 
     SEQ_LENGTH = 50  # Longitud de secuencias para LSTM/GRU

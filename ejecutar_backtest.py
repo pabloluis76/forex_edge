@@ -607,7 +607,7 @@ def main():
     # Parámetros
     TIMEFRAME = 'M15'
     CAPITAL_INICIAL = 100000  # $100,000
-    PARES = ['EUR_USD']  # Lista de pares a procesar (None = auto-detectar)
+    PARES = ['EUR_USD', 'GBP_USD', 'USD_JPY', 'EUR_JPY', 'GBP_JPY', 'AUD_USD']  # Lista de pares a procesar (None = auto-detectar)
 
     # Crear ejecutor
     ejecutor = EjecutorBacktest(

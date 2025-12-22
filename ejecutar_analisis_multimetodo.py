@@ -142,7 +142,12 @@ class EjecutorAnalisisMultimetodo:
 
         # Pares a procesar
         self.pares = [
-            'EUR_USD'
+            'EUR_USD',
+            'GBP_USD',
+            'USD_JPY',
+            'EUR_JPY',
+            'GBP_JPY',
+            'AUD_USD'
         ]
 
         # Estadísticas
