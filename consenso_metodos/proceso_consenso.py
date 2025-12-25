@@ -431,12 +431,15 @@ class ProcesoConsenso:
         # Extraer nombres de features
         feature_names = [f['Feature'] for f in features_aprobados]
 
-        # Obtener índices en X
+        # Obtener índices en X y mapear posiciones
         indices = []
-        for fname in feature_names:
+        valid_positions = []  # Mapeo: posición en indices -> posición en features_aprobados
+
+        for pos, fname in enumerate(feature_names):
             try:
                 idx = self.nombres_features.index(fname)
                 indices.append(idx)
+                valid_positions.append(pos)
             except ValueError:
                 logger.warning(f"Feature {fname} no encontrado en nombres_features")
                 continue
@@ -452,50 +455,58 @@ class ProcesoConsenso:
         logger.info("Calculando matriz de correlación...")
         corr_matrix = np.corrcoef(X_subset.T)
 
+        # Manejar caso de matriz 1D (solo 1 feature)
+        if len(corr_matrix.shape) == 0 or (len(corr_matrix.shape) == 1):
+            logger.info("Matriz de correlación es escalar o 1D, no hay colinealidad")
+            return features_aprobados
+
         # Identificar pares con alta correlación
-        features_a_eliminar = set()
+        # Usar posiciones originales en features_aprobados
+        positions_a_eliminar = set()
 
         for i in range(len(corr_matrix)):
-            if i in features_a_eliminar:
+            orig_pos_i = valid_positions[i]
+            if orig_pos_i in positions_a_eliminar:
                 continue
 
             for j in range(i + 1, len(corr_matrix)):
-                if j in features_a_eliminar:
+                orig_pos_j = valid_positions[j]
+                if orig_pos_j in positions_a_eliminar:
                     continue
 
                 if abs(corr_matrix[i, j]) > umbral:
                     # Decidir cuál eliminar
                     if metodo_seleccion == 'n_metodos':
                         # Eliminar el que tiene menos métodos
-                        if features_aprobados[i]['N_metodos'] < features_aprobados[j]['N_metodos']:
-                            features_a_eliminar.add(i)
+                        if features_aprobados[orig_pos_i]['N_metodos'] < features_aprobados[orig_pos_j]['N_metodos']:
+                            positions_a_eliminar.add(orig_pos_i)
                         else:
-                            features_a_eliminar.add(j)
+                            positions_a_eliminar.add(orig_pos_j)
                     elif metodo_seleccion == 'ic':
-                        # Calcular IC para ambos
+                        # Calcular IC para ambos (usando indices en X)
                         ic_i = self._calcular_ic_rapido(indices[i])
                         ic_j = self._calcular_ic_rapido(indices[j])
 
                         if abs(ic_i) < abs(ic_j):
-                            features_a_eliminar.add(i)
+                            positions_a_eliminar.add(orig_pos_i)
                         else:
-                            features_a_eliminar.add(j)
+                            positions_a_eliminar.add(orig_pos_j)
 
-                    logger.info(f"  Correlación alta: {feature_names[i]} <-> {feature_names[j]} ({corr_matrix[i, j]:.3f})")
+                    logger.info(f"  Correlación alta: {feature_names[orig_pos_i]} <-> {feature_names[orig_pos_j]} ({corr_matrix[i, j]:.3f})")
 
-        # Filtrar features
+        # Filtrar features usando posiciones originales
         features_filtrados = [
             f for idx, f in enumerate(features_aprobados)
-            if idx not in features_a_eliminar
+            if idx not in positions_a_eliminar
         ]
 
         logger.info(f"\nResultados filtrado:")
-        logger.info(f"  Features eliminados por colinealidad: {len(features_a_eliminar)}")
+        logger.info(f"  Features eliminados por colinealidad: {len(positions_a_eliminar)}")
         logger.info(f"  Features restantes: {len(features_filtrados)}")
 
-        if len(features_a_eliminar) > 0 and len(features_a_eliminar) <= 10:
+        if len(positions_a_eliminar) > 0 and len(positions_a_eliminar) <= 10:
             logger.info(f"\nFeatures eliminados:")
-            for idx in sorted(features_a_eliminar):
+            for idx in sorted(positions_a_eliminar):
                 logger.info(f"    - {feature_names[idx]}")
 
         return features_filtrados

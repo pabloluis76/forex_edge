@@ -406,7 +406,14 @@ class EjecutorValidacionRigurosa:
             def calc_ic(datos):
                 if len(datos) < 3:
                     return 0.0
-                ic, _ = spearmanr(datos, y[:len(datos)])
+                # Asegurar que ambos arrays tienen la misma longitud
+                # y eliminar NaN si existen
+                if len(datos) != len(y):
+                    return 0.0
+                mask = ~(np.isnan(datos) | np.isnan(y))
+                if mask.sum() < 3:
+                    return 0.0
+                ic, _ = spearmanr(datos[mask], y[mask])
                 return ic
 
             resultado_ic_bootstrap = bootstrap.bootstrap_metrica(

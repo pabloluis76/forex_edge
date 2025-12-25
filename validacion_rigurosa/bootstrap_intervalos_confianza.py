@@ -123,7 +123,8 @@ class BootstrapIntervalosConfianza:
         media = np.mean(retornos)
         std = np.std(retornos, ddof=1)
 
-        if std == 0 or np.isnan(std):
+        # Usar np.isclose para comparación de floats
+        if np.isclose(std, 0) or np.isnan(std):
             return 0.0
 
         sharpe = (media / std) * np.sqrt(periodos_anuales)

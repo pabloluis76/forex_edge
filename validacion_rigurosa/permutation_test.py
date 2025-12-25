@@ -337,10 +337,15 @@ class PermutationTest:
         std_permuted = np.std(valores_permuted, ddof=1)
 
         # Z-score: cuántas desviaciones estándar está el real de la media aleatoria
-        if std_permuted > 0:
+        # Usar umbral pequeño para evitar np.inf
+        if std_permuted > 1e-10:
             z_score = (valor_real - media_permuted) / std_permuted
         else:
-            z_score = np.inf if valor_real != media_permuted else 0.0
+            # Si std es muy pequeño, todas las permutaciones son iguales
+            # Z-score = 0 (no hay evidencia de diferencia)
+            z_score = 0.0
+            if self.verbose:
+                print(f"  ⚠ Desviación estándar muy pequeña ({std_permuted:.2e})")
 
         # P-value (two-tailed):
         # ¿Cuántas permutaciones tienen métrica >= |métrica real - media|?
