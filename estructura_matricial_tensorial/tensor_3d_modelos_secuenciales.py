@@ -90,7 +90,9 @@ class Tensor3DSecuencial:
     def crear_secuencias(self,
                         lookback: int = 50,
                         horizonte: int = 1,
-                        step: int = 1) -> Tuple[np.ndarray, np.ndarray]:
+                        step: int = 1,
+                        precios: Optional[np.ndarray] = None,
+                        tipo_target: str = 'retorno') -> Tuple[np.ndarray, np.ndarray]:
         """
         Crea tensor 3D mediante ventanas deslizantes.
 
@@ -98,6 +100,8 @@ class Tensor3DSecuencial:
             lookback: Número de barras de historia (L)
             horizonte: Barras hacia adelante para predecir
             step: Paso entre ventanas (1 = máximo overlap)
+            precios: Array de precios (close) para calcular target. Si None, intenta obtener de matriz_2d.df
+            tipo_target: 'retorno', 'log_retorno', 'direccion'
 
         Returns:
             (X_3d, y) donde:
@@ -120,7 +124,6 @@ class Tensor3DSecuencial:
 
         # Inicializar tensor 3D
         X_3d = np.zeros((n_samples, lookback, n_features), dtype=np.float32)
-        y = np.zeros(n_samples, dtype=np.float32)
 
         # Crear ventanas deslizantes
         logger.info(f"Generando {n_samples:,} ventanas deslizantes...")
@@ -128,21 +131,11 @@ class Tensor3DSecuencial:
         for i in range(n_samples):
             start_idx = i * step
             end_idx = start_idx + lookback
-            target_idx = end_idx + horizonte - 1
 
             # Ventana de lookback
             X_3d[i] = X_2d[start_idx:end_idx]
 
-            # Target: necesitamos calcular retorno futuro
-            # Por ahora, usamos un placeholder
-            # En práctica, necesitamos los precios originales
-            if target_idx < n_obs:
-                # Placeholder: usar primera columna como proxy de retorno
-                # En producción, esto vendría de los precios
-                y[i] = X_2d[target_idx, 0]  # Placeholder
-
         self.X_3d = X_3d
-        self.y = y
         self.n_samples = n_samples
 
         logger.info(f"✓ Tensor 3D creado: {X_3d.shape}")
@@ -150,6 +143,20 @@ class Tensor3DSecuencial:
         logger.info(f"  lookback = {lookback}")
         logger.info(f"  n_features = {n_features}")
         logger.info(f"  Tamaño en memoria: {X_3d.nbytes / 1024**2:.1f} MB")
+
+        # Crear target correcto desde precios
+        if precios is None:
+            # Intentar obtener precios de la matriz 2D
+            if hasattr(self.matriz_2d, 'df') and 'close' in self.matriz_2d.df.columns:
+                precios = self.matriz_2d.df['close'].values
+                logger.info("✓ Precios obtenidos desde matriz_2d.df['close']")
+            else:
+                logger.warning("⚠️  No se proporcionaron precios. Target será placeholder (usar crear_target_desde_precios() después)")
+                self.y = np.zeros(n_samples, dtype=np.float32)
+                return X_3d, self.y
+
+        # Crear target correcto
+        y = self.crear_target_desde_precios(precios, horizonte, tipo_target)
 
         return X_3d, y
 

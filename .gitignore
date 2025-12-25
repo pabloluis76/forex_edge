@@ -62,6 +62,15 @@ test_*.py
 *_test.py
 tests/
 pruebas/
+run_all_tests.py
+validacion_matematica.py
+test_*.sh
+
+# Diagnostic and troubleshooting scripts
+diagnostico_*.py
+*_diagnostico.py
+SOLUCION_*.md
+debug_*.py
 
 # Data files (too large for GitHub)
 datos/

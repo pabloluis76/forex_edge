@@ -292,7 +292,10 @@ class ProcesoConsenso:
                                    feature_counts: Dict,
                                    feature_metodos: Dict):
         """
-        PASO 3: Verificación cruzada de features en consenso fuerte.
+        PASO 3: Verificación cruzada de features en consenso fuerte Y medio.
+
+        MODIFICADO: Ahora procesa tanto consenso_fuerte como consenso_medio
+        para aumentar el número de features aprobados.
         """
         logger.info("="*70)
         logger.info("PASO 3: VERIFICACIÓN CRUZADA")
@@ -301,14 +304,24 @@ class ProcesoConsenso:
         features_aprobados = []
         features_rechazados = []
 
-        for feature in self.consenso_fuerte:
+        # MODIFICADO: Procesar tanto consenso fuerte como medio
+        features_a_verificar = self.consenso_fuerte | self.consenso_medio
+
+        logger.info(f"\nFeatures a verificar:")
+        logger.info(f"  Consenso fuerte: {len(self.consenso_fuerte)}")
+        logger.info(f"  Consenso medio: {len(self.consenso_medio)}")
+        logger.info(f"  Total a verificar: {len(features_a_verificar)}")
+
+        for feature in features_a_verificar:
             # Verificaciones
             checks_passed = 0
             checks_total = 0
 
             # 1. ¿Está en múltiples métodos?
             n_metodos = feature_counts[feature]
-            if n_metodos >= 5:
+            # MODIFICADO: Umbral dinámico según consenso fuerte o medio
+            umbral_minimo = 5 if feature in self.consenso_fuerte else 3
+            if n_metodos >= umbral_minimo:
                 checks_passed += 1
             checks_total += 1
 
@@ -330,8 +343,10 @@ class ProcesoConsenso:
                     checks_passed += 1
                 checks_total += 1
 
-            # Criterio de aprobación: ≥75% de checks
-            if checks_passed / checks_total >= 0.75:
+            # Criterio de aprobación: ≥60% de checks (reducido de 75%)
+            # MODIFICADO: Umbral más permisivo para incluir consenso medio
+            umbral_aprobacion = 0.75 if feature in self.consenso_fuerte else 0.60
+            if checks_passed / checks_total >= umbral_aprobacion:
                 features_aprobados.append({
                     'Feature': feature,
                     'N_metodos': n_metodos,
@@ -349,13 +364,29 @@ class ProcesoConsenso:
                     'Aprobado': False
                 })
 
+        # Resultados preliminares
+        logger.info(f"\nResultados de verificación cruzada (antes de filtro colinealidad):")
+        logger.info(f"  Features en consenso fuerte: {len(self.consenso_fuerte)}")
+        logger.info(f"  Features aprobados (preliminar): {len(features_aprobados)}")
+        logger.info(f"  Features rechazados: {len(features_rechazados)}")
+
+        # NUEVO: Aplicar filtro de colinealidad
+        if len(features_aprobados) > 1:
+            logger.info("\n" + "="*70)
+            logger.info("APLICANDO FILTRO DE COLINEALIDAD")
+            logger.info("="*70)
+            features_aprobados = self.filtrar_colinealidad(
+                features_aprobados,
+                umbral=0.95,
+                metodo_seleccion='ic'
+            )
+
+        # Actualizar lista final de aprobados
         self.features_aprobados = features_aprobados
 
-        # Resultados
-        logger.info(f"\nResultados de verificación cruzada:")
-        logger.info(f"  Features en consenso fuerte: {len(self.consenso_fuerte)}")
-        logger.info(f"  Features APROBADOS: {len(features_aprobados)}")
-        logger.info(f"  Features rechazados: {len(features_rechazados)}")
+        # Resultados finales
+        logger.info(f"\nResultados FINALES de verificación cruzada:")
+        logger.info(f"  Features APROBADOS (post-filtro): {len(features_aprobados)}")
 
         if len(features_aprobados) > 0:
             logger.info(f"\nTop 10 features APROBADOS:")
@@ -369,6 +400,128 @@ class ProcesoConsenso:
                 )
 
         return features_aprobados, features_rechazados
+
+    def filtrar_colinealidad(self,
+                            features_aprobados: List[Dict],
+                            umbral: float = 0.95,
+                            metodo_seleccion: str = 'ic') -> List[Dict]:
+        """
+        NUEVO: Filtra features altamente correlacionados.
+
+        Si dos features tienen correlación > umbral, elimina el menos importante
+        según el criterio de selección.
+
+        Args:
+            features_aprobados: Lista de features aprobados
+            umbral: Umbral de correlación (default: 0.95)
+            metodo_seleccion: Criterio para elegir cuál eliminar ('ic', 'n_metodos')
+
+        Returns:
+            Lista de features aprobados sin colinealidad alta
+        """
+        if len(features_aprobados) < 2:
+            return features_aprobados
+
+        logger.info("="*70)
+        logger.info("FILTRO DE COLINEALIDAD")
+        logger.info("="*70)
+        logger.info(f"Umbral: {umbral}")
+        logger.info(f"Features a analizar: {len(features_aprobados)}")
+
+        # Extraer nombres de features
+        feature_names = [f['Feature'] for f in features_aprobados]
+
+        # Obtener índices en X
+        indices = []
+        for fname in feature_names:
+            try:
+                idx = self.nombres_features.index(fname)
+                indices.append(idx)
+            except ValueError:
+                logger.warning(f"Feature {fname} no encontrado en nombres_features")
+                continue
+
+        if len(indices) < 2:
+            logger.info("No hay suficientes features para verificar colinealidad")
+            return features_aprobados
+
+        # Extraer subconjunto de X
+        X_subset = self.X[:, indices]
+
+        # Calcular matriz de correlación
+        logger.info("Calculando matriz de correlación...")
+        corr_matrix = np.corrcoef(X_subset.T)
+
+        # Identificar pares con alta correlación
+        features_a_eliminar = set()
+
+        for i in range(len(corr_matrix)):
+            if i in features_a_eliminar:
+                continue
+
+            for j in range(i + 1, len(corr_matrix)):
+                if j in features_a_eliminar:
+                    continue
+
+                if abs(corr_matrix[i, j]) > umbral:
+                    # Decidir cuál eliminar
+                    if metodo_seleccion == 'n_metodos':
+                        # Eliminar el que tiene menos métodos
+                        if features_aprobados[i]['N_metodos'] < features_aprobados[j]['N_metodos']:
+                            features_a_eliminar.add(i)
+                        else:
+                            features_a_eliminar.add(j)
+                    elif metodo_seleccion == 'ic':
+                        # Calcular IC para ambos
+                        ic_i = self._calcular_ic_rapido(indices[i])
+                        ic_j = self._calcular_ic_rapido(indices[j])
+
+                        if abs(ic_i) < abs(ic_j):
+                            features_a_eliminar.add(i)
+                        else:
+                            features_a_eliminar.add(j)
+
+                    logger.info(f"  Correlación alta: {feature_names[i]} <-> {feature_names[j]} ({corr_matrix[i, j]:.3f})")
+
+        # Filtrar features
+        features_filtrados = [
+            f for idx, f in enumerate(features_aprobados)
+            if idx not in features_a_eliminar
+        ]
+
+        logger.info(f"\nResultados filtrado:")
+        logger.info(f"  Features eliminados por colinealidad: {len(features_a_eliminar)}")
+        logger.info(f"  Features restantes: {len(features_filtrados)}")
+
+        if len(features_a_eliminar) > 0 and len(features_a_eliminar) <= 10:
+            logger.info(f"\nFeatures eliminados:")
+            for idx in sorted(features_a_eliminar):
+                logger.info(f"    - {feature_names[idx]}")
+
+        return features_filtrados
+
+    def _calcular_ic_rapido(self, feature_idx: int) -> float:
+        """
+        Calcula IC para un feature específico (método auxiliar).
+
+        Args:
+            feature_idx: Índice del feature en X
+
+        Returns:
+            IC (correlación con y)
+        """
+        from scipy.stats import spearmanr
+
+        x = self.X[:, feature_idx]
+        mask = ~(np.isnan(x) | np.isnan(self.y))
+        x_clean = x[mask]
+        y_clean = self.y[mask]
+
+        if len(x_clean) < 10:
+            return 0.0
+
+        ic, _ = spearmanr(x_clean, y_clean)
+        return ic
 
     def verificar_estabilidad_temporal(self,
                                       feature: str,

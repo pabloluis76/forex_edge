@@ -62,6 +62,8 @@ class WalkForwardValidation:
         test_months: int = 6,
         step_months: int = 3,
         umbral_consenso: int = 3,
+        modo: str = 'rolling',
+        retrain_threshold_ic: float = 0.01,
         verbose: bool = True
     ):
         """
@@ -81,6 +83,11 @@ class WalkForwardValidation:
             Meses para avanzar la ventana (default: 3)
         umbral_consenso : int
             Número mínimo de métodos que deben concordar (default: 3)
+        modo : str
+            'rolling': ventana deslizante de tamaño fijo
+            'expanding': ventana que crece (anchored walk-forward)
+        retrain_threshold_ic : float
+            IC mínimo para considerar degradación (default: 0.01)
         verbose : bool
             Imprimir progreso detallado
         """
@@ -90,6 +97,8 @@ class WalkForwardValidation:
         self.test_months = test_months
         self.step_months = step_months
         self.umbral_consenso = umbral_consenso
+        self.modo = modo
+        self.retrain_threshold_ic = retrain_threshold_ic
         self.verbose = verbose
 
         # Resultados
@@ -105,7 +114,9 @@ class WalkForwardValidation:
             print(f"  - Train: {train_years} años")
             print(f"  - Test: {test_months} meses")
             print(f"  - Step: {step_months} meses")
+            print(f"  - Modo: {modo}")
             print(f"  - Umbral consenso: {umbral_consenso} métodos")
+            print(f"  - Re-train threshold IC: {retrain_threshold_ic}")
             print("="*80)
 
     def cargar_datos(self) -> Tuple[pd.DataFrame, pd.Series]:
@@ -182,10 +193,18 @@ class WalkForwardValidation:
 
         # Generar ventanas
         ventana_num = 1
+        fecha_train_inicio_inicial = fecha_inicio  # Para modo expanding
         fecha_train_inicio = fecha_inicio
 
         while True:
-            fecha_train_fin = fecha_train_inicio + train_delta
+            # Modo EXPANDING: inicio de train es siempre el comienzo de los datos
+            # Modo ROLLING: inicio de train avanza con cada ventana
+            if self.modo == 'expanding' and ventana_num > 1:
+                fecha_train_inicio = fecha_train_inicio_inicial
+                fecha_train_fin = fecha_train_inicio_inicial + train_delta + (step_delta * (ventana_num - 1))
+            else:
+                fecha_train_fin = fecha_train_inicio + train_delta
+
             fecha_test_fin = fecha_train_fin + test_delta
 
             # Verificar que hay datos suficientes
@@ -208,18 +227,21 @@ class WalkForwardValidation:
                 'idx_train': idx_train,
                 'idx_test': idx_test,
                 'n_train': idx_train.sum(),
-                'n_test': idx_test.sum()
+                'n_test': idx_test.sum(),
+                'modo': self.modo
             }
 
             ventanas.append(ventana)
 
             if self.verbose:
-                print(f"\n  Ventana {ventana_num}:")
+                modo_str = "EXPANDING" if self.modo == 'expanding' else "ROLLING"
+                print(f"\n  Ventana {ventana_num} ({modo_str}):")
                 print(f"    TRAIN: {fecha_train_inicio.date()} → {fecha_train_fin.date()} ({idx_train.sum()} obs)")
                 print(f"    TEST:  {fecha_train_fin.date()} → {fecha_test_fin.date()} ({idx_test.sum()} obs)")
 
-            # Avanzar ventana
-            fecha_train_inicio += step_delta
+            # Avanzar ventana (solo para modo rolling)
+            if self.modo == 'rolling':
+                fecha_train_inicio += step_delta
             ventana_num += 1
 
         if self.verbose:
@@ -541,6 +563,73 @@ class WalkForwardValidation:
             'Max_Drawdown': max_dd
         }
 
+    def _detectar_degradacion(self, df_metricas: pd.DataFrame):
+        """
+        Detecta degradación de performance a lo largo del tiempo.
+
+        SEÑALES DE DEGRADACIÓN:
+        - IC cayendo consistentemente
+        - Ventanas recientes con IC < umbral
+        - Sharpe decreciente
+
+        Parameters:
+        -----------
+        df_metricas : pd.DataFrame
+            Métricas por ventana
+        """
+        if len(df_metricas) < 3:
+            print(f"  ⚠ Pocas ventanas para detectar tendencias")
+            return
+
+        ics = df_metricas['IC'].values
+        ventanas = df_metricas['ventana'].values
+
+        # Detectar tendencia en IC usando regresión simple
+        mask_valid = ~np.isnan(ics)
+        if mask_valid.sum() < 3:
+            print(f"  ⚠ Insuficientes datos válidos")
+            return
+
+        x = ventanas[mask_valid]
+        y = ics[mask_valid]
+
+        # Regresión lineal simple
+        pendiente = np.polyfit(x, y, 1)[0]
+
+        # Últimas 3 ventanas
+        ultimas_3_ics = ics[-3:]
+        promedio_reciente = np.nanmean(ultimas_3_ics)
+
+        print(f"  Tendencia IC: {'decreciente' if pendiente < 0 else 'creciente'} (pendiente={pendiente:.6f})")
+        print(f"  IC promedio últimas 3 ventanas: {promedio_reciente:.4f}")
+
+        # Diagnóstico
+        degradacion_detectada = False
+        razones = []
+
+        if pendiente < -0.001:  # Tendencia decreciente significativa
+            degradacion_detectada = True
+            razones.append("IC decreciente a lo largo del tiempo")
+
+        if promedio_reciente < self.retrain_threshold_ic:
+            degradacion_detectada = True
+            razones.append(f"IC reciente ({promedio_reciente:.4f}) < umbral ({self.retrain_threshold_ic})")
+
+        # Verificar últimas 2 ventanas negativas
+        if len(ultimas_3_ics) >= 2:
+            if ultimas_3_ics[-1] < 0 and ultimas_3_ics[-2] < 0:
+                degradacion_detectada = True
+                razones.append("Últimas 2 ventanas con IC negativo")
+
+        if degradacion_detectada:
+            print(f"\n  ⚠ DEGRADACIÓN DETECTADA:")
+            for razon in razones:
+                print(f"    - {razon}")
+            print(f"  → RECOMENDACIÓN: Re-entrenar modelos o revisar features")
+        else:
+            print(f"\n  ✓ No se detectó degradación significativa")
+            print(f"  → Performance estable")
+
     def ejecutar_walk_forward(self) -> pd.DataFrame:
         """
         Ejecuta el proceso completo de Walk-Forward Validation.
@@ -662,6 +751,10 @@ class WalkForwardValidation:
         pct_sharpe = (n_sharpe_pos / len(sharpes) * 100) if len(sharpes) > 0 else 0
 
         print(f"  Sharpe > 0: {n_sharpe_pos}/{len(sharpes)} ventanas ({pct_sharpe:.1f}%)")
+
+        # Detección de degradación de performance
+        print(f"\nDETECCIÓN DE DEGRADACIÓN:")
+        self._detectar_degradacion(df_metricas)
 
         # Diagnóstico final
         print(f"\n{'='*80}")

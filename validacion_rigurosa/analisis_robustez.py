@@ -58,6 +58,9 @@ import re
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
+# Importar RegimeDetector
+from .regime_detection import RegimeDetector
+
 
 class AnalisisRobustez:
     """
@@ -87,6 +90,7 @@ class AnalisisRobustez:
         self.resultados_parametros: Dict = {}
         self.resultados_temporales: Dict = {}
         self.resultados_activos: Dict = {}
+        self.resultados_regimenes: Dict = {}
 
         if self.verbose:
             print("="*80)
@@ -669,6 +673,166 @@ class AnalisisRobustez:
         return df_activos
 
     # ========================================================================
+    # D) ROBUSTEZ POR RÉGIMEN DE MERCADO
+    # ========================================================================
+
+    def analizar_robustez_regimenes(
+        self,
+        transformacion: pd.Series,
+        target: pd.Series,
+        precios: pd.Series,
+        high: Optional[pd.Series] = None,
+        low: Optional[pd.Series] = None,
+        umbral_ic: float = 0.01
+    ) -> pd.DataFrame:
+        """
+        Analiza robustez del feature en diferentes regímenes de mercado.
+
+        Un feature ROBUSTO debe funcionar en TODOS los regímenes:
+        - Trending (ADX > 25)
+        - Ranging (ADX < 20)
+        - High Volatility (ATR > percentil 75)
+        - Low Volatility (ATR < percentil 25)
+
+        Si solo funciona en un régimen específico, es FRÁGIL.
+
+        Parameters:
+        -----------
+        transformacion : pd.Series
+            Serie de transformación (feature)
+        target : pd.Series
+            Target (retornos futuros)
+        precios : pd.Series
+            Serie de precios (close)
+        high : pd.Series, optional
+            Precios high (para ATR más preciso)
+        low : pd.Series, optional
+            Precios low (para ATR más preciso)
+        umbral_ic : float
+            IC mínimo requerido por régimen (default: 0.01)
+
+        Returns:
+        --------
+        df_regimenes : pd.DataFrame
+            IC y significancia por régimen de mercado
+        """
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"D) ROBUSTEZ POR RÉGIMEN DE MERCADO")
+            print(f"{'='*80}")
+
+        # Alinear índices
+        idx_comun = transformacion.index.intersection(target.index).intersection(precios.index)
+        transformacion_aligned = transformacion.loc[idx_comun]
+        target_aligned = target.loc[idx_comun]
+        precios_aligned = precios.loc[idx_comun]
+
+        if high is not None and low is not None:
+            high_aligned = high.loc[idx_comun]
+            low_aligned = low.loc[idx_comun]
+        else:
+            high_aligned = None
+            low_aligned = None
+
+        # Crear detector de regímenes
+        detector = RegimeDetector(
+            precios=precios_aligned,
+            high=high_aligned,
+            low=low_aligned
+        )
+
+        # Detectar regímenes
+        if self.verbose:
+            print(f"Detectando regímenes de mercado...")
+
+        regimenes = detector.detectar_regimenes()
+
+        # Analizar por régimen
+        if self.verbose:
+            print(f"\nCalculando IC por régimen...")
+
+        resultados_regimen = detector.analizar_por_regimen(
+            feature=transformacion_aligned.values,
+            target=target_aligned.values
+        )
+
+        # Crear DataFrame de resultados
+        resultados = []
+        for regimen_nombre, res in resultados_regimen.items():
+            resultados.append({
+                'Regimen': regimen_nombre,
+                'IC': res['ic'],
+                'P_Value': res['p_value'],
+                'N_Obs': res['n_obs'],
+                'Significativo': res['significativo']
+            })
+
+        df_regimenes = pd.DataFrame(resultados)
+
+        # Evaluación de robustez por régimen
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"RESULTADOS - ROBUSTEZ POR RÉGIMEN")
+            print(f"{'='*80}")
+
+            for _, row in df_regimenes.iterrows():
+                regimen = row['Regimen']
+                ic = row['IC']
+                p_val = row['P_Value']
+                n_obs = row['N_Obs']
+                sig = row['Significativo']
+
+                status = "✓" if (ic > umbral_ic and sig) else "✗"
+                print(f"{status} {regimen:15s}: IC={ic:7.4f}, p={p_val:.4f}, N={n_obs:5d}")
+
+            print(f"\n{'='*80}")
+            print(f"DIAGNÓSTICO:")
+            print(f"{'='*80}")
+
+            # Criterios de robustez por régimen:
+            # 1. IC > umbral en TODOS los regímenes
+            # 2. Significativo (p < 0.01) en TODOS los regímenes
+            # 3. Mismo signo en todos los regímenes
+
+            ics_positivos = (df_regimenes['IC'] > umbral_ic).sum()
+            ics_significativos = df_regimenes['Significativo'].sum()
+            n_regimenes = len(df_regimenes)
+            mismo_signo = all(df_regimenes['IC'] > 0) or all(df_regimenes['IC'] < 0)
+
+            if ics_positivos == n_regimenes and ics_significativos == n_regimenes and mismo_signo:
+                print(f"✓ ROBUSTO EN TODOS LOS REGÍMENES")
+                print(f"  - Funciona en {ics_positivos}/{n_regimenes} regímenes (IC > {umbral_ic})")
+                print(f"  - Significativo en {ics_significativos}/{n_regimenes} regímenes")
+                print(f"  - Edge genuino, no depende de condiciones específicas")
+                print(f"  - Alta confianza para trading real")
+                robustez_regimen = "ROBUSTO"
+            elif ics_positivos >= n_regimenes * 0.75 and ics_significativos >= n_regimenes * 0.75:
+                print(f"⚠ MODERADAMENTE ROBUSTO")
+                print(f"  - Funciona en {ics_positivos}/{n_regimenes} regímenes")
+                print(f"  - Significativo en {ics_significativos}/{n_regimenes} regímenes")
+                print(f"  - Cierta dependencia de régimen de mercado")
+                print(f"  - Requiere monitoreo de condiciones")
+                robustez_regimen = "MODERADO"
+            else:
+                print(f"✗ RÉGIMEN-ESPECÍFICO (FRÁGIL)")
+                print(f"  - Solo funciona en {ics_positivos}/{n_regimenes} regímenes")
+                print(f"  - Significativo solo en {ics_significativos}/{n_regimenes} regímenes")
+                print(f"  - Edge depende de condiciones específicas")
+                print(f"  - ALTO riesgo: puede fallar en cambio de régimen")
+                print(f"  - NO RECOMENDADO sin gestión de régimen")
+                robustez_regimen = "FRÁGIL"
+
+        # Guardar resultados
+        self.resultados_regimenes = {
+            'df_regimenes': df_regimenes,
+            'ics_positivos': ics_positivos,
+            'ics_significativos': ics_significativos,
+            'robustez_regimen': robustez_regimen
+        }
+
+        return df_regimenes
+
+    # ========================================================================
     # UTILIDADES
     # ========================================================================
 
@@ -747,6 +911,17 @@ class AnalisisRobustez:
                 'IC Mean': self.resultados_activos['ic_mean'],
                 'IC Std': self.resultados_activos['ic_std'],
                 'Pct Positivos': self.resultados_activos['pct_positivos']
+            })
+
+        # D) Robustez por régimen
+        if hasattr(self, 'resultados_regimenes') and self.resultados_regimenes:
+            df_reg = self.resultados_regimenes['df_regimenes']
+            informe.append({
+                'Dimensión': 'D) Regímenes',
+                'Evaluación': self.resultados_regimenes['robustez_regimen'],
+                'IC Mean': df_reg['IC'].mean(),
+                'IC Std': df_reg['IC'].std(),
+                'Pct Significativos': self.resultados_regimenes['ics_significativos'] / len(df_reg)
             })
 
         df_informe = pd.DataFrame(informe)
