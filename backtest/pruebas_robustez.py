@@ -17,6 +17,10 @@ from typing import Dict, List, Tuple, Optional, Callable
 import warnings
 warnings.filterwarnings('ignore')
 
+# CONSTANTES PARA DATOS M15
+BARS_PER_YEAR_M15 = 24192
+EPSILON = 1e-10
+
 
 class PruebasRobustez:
     """
@@ -696,18 +700,19 @@ class PruebasRobustez:
     # ========================================================================
 
     def _calcular_sharpe(self, returns: np.ndarray) -> float:
-        """Calcula Sharpe ratio anualizado."""
+        """CRÍTICO #1 + BAJO #20: Calcula Sharpe ratio anualizado correctamente para M15."""
         if len(returns) < 2:
             return 0.0
 
         mean_return = np.mean(returns)
         std_return = np.std(returns, ddof=1)
 
-        if std_return == 0:
+        # BAJO #20: Usar epsilon para comparación de floats
+        if std_return < EPSILON:
             return 0.0
 
-        # Asumir ~252 días de trading anuales
-        sharpe = (mean_return / std_return) * np.sqrt(252)
+        # CRÍTICO #1: Usar factor correcto para M15 (no 252)
+        sharpe = (mean_return / std_return) * np.sqrt(BARS_PER_YEAR_M15)
 
         return sharpe
 
@@ -741,12 +746,18 @@ class PruebasRobustez:
         return max_dd
 
     def _calcular_return_anual(self, returns: np.ndarray, n_trades_total: int) -> float:
-        """Calcula retorno anual estimado."""
+        """
+        BAJO #19: Calcula retorno anual estimado.
+
+        NOTA: Usa estimación de 250 trades/año como aproximación.
+        TODO: Mejorar usando timestamps reales de trades para calcular años exactos.
+        """
         # Total return
         total_return = np.sum(returns)
 
-        # Estimar años (asumiendo ~250 trades por año)
-        years = n_trades_total / 250
+        # BAJO #19: Estimación aproximada de años
+        # Idealmente usar: years = (df_trades['exit_time'].max() - df_trades['entry_time'].min()).days / 365.25
+        years = n_trades_total / 250  # Aproximación: ~250 trades/año
 
         if years > 0:
             annual_return = total_return / years

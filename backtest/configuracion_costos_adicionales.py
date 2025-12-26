@@ -297,10 +297,16 @@ class ConfiguracionCostosAdicionales:
         # Calcular swap base
         swap_total = swap_rate * lotes * noches
 
-        # Verificar triple swap (Miércoles → Jueves)
-        # Si la posición cruza el miércoles, se aplica triple swap
-        if dia_apertura <= 2 and (dia_apertura + noches) > 2:  # Cruza miércoles
-            swap_total += swap_rate * lotes * 2  # +2 noches adicionales por weekend
+        # ALTO #10: Triple swap - verificar si se mantiene a través del cierre del miércoles
+        # Triple swap se aplica el miércoles para cubrir sábado y domingo
+        # Verificar si alguna noche entre entry y exit es miércoles (día 2)
+        triple_swap_aplicado = False
+        for day_offset in range(noches):
+            current_day = (dia_apertura + day_offset) % 5  # Módulo 5 para días laborales
+            if current_day == 2:  # Miércoles
+                swap_total += swap_rate * lotes * 2  # +2 noches por fin de semana
+                triple_swap_aplicado = True
+                break  # Solo aplicar una vez
 
         return round(swap_total, 2)
 

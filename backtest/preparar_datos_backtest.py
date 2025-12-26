@@ -177,6 +177,14 @@ class PreparadorDatosBacktest:
         # Concatenar todos los pares
         df_raw_ohlcv = pd.concat(dfs_pares, ignore_index=True)
 
+        # BAJO #18: Validar duplicados y calidad de timestamps
+        duplicates = df_raw_ohlcv.duplicated(subset=['timestamp', 'pair'], keep=False)
+        if duplicates.any():
+            n_duplicates = duplicates.sum()
+            if self.verbose:
+                print(f"  ⚠ Warning: {n_duplicates} timestamp+pair duplicados encontrados (se eliminarán)")
+            df_raw_ohlcv = df_raw_ohlcv[~duplicates]
+
         # Ordenar por timestamp y par
         df_raw_ohlcv.sort_values(['timestamp', 'pair'], inplace=True)
         df_raw_ohlcv.reset_index(drop=True, inplace=True)

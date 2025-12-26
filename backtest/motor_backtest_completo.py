@@ -22,6 +22,12 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
+# CONSTANTES PARA DATOS M15 (15 minutos)
+# 252 días trading × 24 horas × 4 bars/hora × 0.7 (ajuste fin de semana) = ~24,192
+BARS_PER_YEAR_M15 = 24192
+BARS_PER_DAY_M15 = 96  # 24 horas × 4 bars/hora
+EPSILON = 1e-10  # Para comparaciones de floats
+
 
 class MotorBacktestCompleto:
     """
@@ -61,6 +67,7 @@ class MotorBacktestCompleto:
             # Exits
             'stop_loss_atr_mult': 2.5,
             'take_profit_atr_mult': 3.5,
+            # BAJO #17: Timeout en bars (para M15: 50 bars = ~12.5 horas)
             'timeout_bars': 50,
 
             # Costos
@@ -218,7 +225,10 @@ class MotorBacktestCompleto:
             tr3 = abs(low - close_prev)
 
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-            atr = tr.rolling(window=14).mean()
+            # MEDIO #12: Evitar look-ahead bias - ATR no incluye barra actual
+            atr = tr.rolling(window=14).mean().shift(1)
+            # BAJO #16: Forward fill primeros NaN valores
+            atr = atr.fillna(method='bfill').fillna(0.0001)
 
             df_trans.loc[mask, 'ATR'] = atr.values
 
@@ -287,11 +297,12 @@ class MotorBacktestCompleto:
         if len(df_par) < 20:
             return 'NEUTRAL', 0.0
 
-        # Retorno de 1 período
-        ret_1 = (df_par['close'].iloc[-1] - df_par['close'].iloc[-2]) / df_par['close'].iloc[-2]
+        # MEDIO #13: Usar barra anterior para señal (no close actual)
+        # Retorno de 1 período (usando barra anterior)
+        ret_1 = (df_par['close'].iloc[-2] - df_par['close'].iloc[-3]) / df_par['close'].iloc[-3]
 
-        # Retorno de 5 períodos
-        ret_5 = (df_par['close'].iloc[-1] - df_par['close'].iloc[-6]) / df_par['close'].iloc[-6]
+        # Retorno de 5 períodos (usando barra anterior)
+        ret_5 = (df_par['close'].iloc[-2] - df_par['close'].iloc[-7]) / df_par['close'].iloc[-7]
 
         # Señal simple: momentum positivo
         if ret_1 > 0 and ret_5 > 0:
@@ -426,6 +437,12 @@ class MotorBacktestCompleto:
             take_profit = entry_price - tp_distance
 
         # Calcular position size
+        # CRÍTICO #3: Validar sl_distance para evitar división por cero
+        if sl_distance <= 0 or sl_distance < entry_price * 0.0001:  # Mínimo 1 pip
+            if self.verbose:
+                print(f"  ⚠ SL distance inválido ({sl_distance:.6f}), trade omitido")
+            return
+
         risk_amount = self.capital * self.config['risk_per_trade']
         position_size_frac = (risk_amount / sl_distance) / entry_price
         position_size_frac = min(position_size_frac, self.config['max_position_size'])
@@ -558,8 +575,11 @@ class MotorBacktestCompleto:
         # Spread de salida
         spread_exit = self.get_spread(timestamp, posicion['pair'])
 
-        # Slippage de salida
-        slippage_exit = self.config['base_slippage_pips']
+        # CRÍTICO #6: Slippage de salida DINÁMICO (no hardcoded)
+        # Calcular slippage dinámico basado en ATR actual
+        atr_current = row.get('ATR', posicion['atr_entry'])
+        atr_avg = posicion['atr_entry']
+        slippage_exit = self.calcular_slippage(atr_current, atr_avg)
 
         # Costo de salida
         exit_cost_pips = spread_exit + slippage_exit
@@ -577,25 +597,27 @@ class MotorBacktestCompleto:
         else:
             precio_cierre_real = precio_cierre + exit_cost  # Comprar al ASK
 
-        # Gross P&L
+        # CRÍTICO #4: Gross P&L ya incluye costos en precios ajustados
+        # NO deducir costs por separado (evita doble conteo)
         if posicion['direction'] == 'LONG':
             gross_pnl = (precio_cierre_real - posicion['entry_price']) * posicion['capital_riesgo'] / posicion['entry_price']
         else:
             gross_pnl = (posicion['entry_price'] - precio_cierre_real) * posicion['capital_riesgo'] / posicion['entry_price']
 
-        # Costos
+        # Costos (solo para tracking, YA incluidos en precio)
         cost_spread_total = (posicion['entry_spread'] + spread_exit) * pip_size * posicion['capital_riesgo'] / posicion['entry_price']
         cost_slippage_total = (posicion['entry_slippage'] + slippage_exit) * pip_size * posicion['capital_riesgo'] / posicion['entry_price']
 
         # Swap (simplificado, asumiendo -$6.50 por noche para EUR_USD Long)
-        noches = posicion['bars_open'] // 24  # Asumiendo H1
+        # CRÍTICO #2: Corregido para M15 (96 bars/día, no 24)
+        noches = posicion['bars_open'] // BARS_PER_DAY_M15
         if noches > 0:
             swap = -6.50 * noches * (posicion['capital_riesgo'] / 100000)  # Ajustar por lote
         else:
             swap = 0
 
-        # Net P&L
-        net_pnl = gross_pnl - cost_spread_total - cost_slippage_total - abs(swap) if swap < 0 else gross_pnl - cost_spread_total - cost_slippage_total
+        # ALTO #9: Net P&L = Gross P&L - Swap (costos ya en precio, swap no)
+        net_pnl = gross_pnl - swap
 
         # Actualizar capital
         self.capital += net_pnl
@@ -615,7 +637,9 @@ class MotorBacktestCompleto:
             'cost_swap': swap,
             'net_pnl': net_pnl,
             'capital_after': self.capital,
-            'return_pct': (net_pnl / posicion['capital_riesgo']) * 100
+            # MEDIO #15: Return como % del capital total (más útil que % de position size)
+            'return_pct': (net_pnl / self.capital_inicial) * 100,
+            'return_on_position': (net_pnl / posicion['capital_riesgo']) * 100  # Return on position size
         }
 
         self.historial_trades.append(trade)
@@ -711,13 +735,30 @@ class MotorBacktestCompleto:
                 self.posiciones_abiertas.remove(pos)
 
     def _calcular_pnl_no_realizado(self, posicion: Dict, row: pd.Series) -> float:
-        """Calcula P&L no realizado de una posición."""
+        """
+        MEDIO #14: Calcula P&L no realizado con estimación de costos de salida.
+        """
         precio_actual = row['close']
 
-        if posicion['direction'] == 'LONG':
-            pnl = (precio_actual - posicion['entry_price']) * posicion['capital_riesgo'] / posicion['entry_price']
+        # Estimar costos de salida
+        spread_exit = self.get_spread(row['timestamp'], posicion['pair'])
+        atr_current = row.get('ATR', posicion['atr_entry'])
+        slippage_exit = self.calcular_slippage(atr_current, posicion['atr_entry'])
+
+        if 'JPY' in posicion['pair']:
+            pip_size = 0.01
         else:
-            pnl = (posicion['entry_price'] - precio_actual) * posicion['capital_riesgo'] / posicion['entry_price']
+            pip_size = 0.0001
+
+        exit_cost = (spread_exit + slippage_exit) * pip_size
+
+        # Ajustar precio actual por costos de salida estimados
+        if posicion['direction'] == 'LONG':
+            precio_actual_adj = precio_actual - exit_cost
+            pnl = (precio_actual_adj - posicion['entry_price']) * posicion['capital_riesgo'] / posicion['entry_price']
+        else:
+            precio_actual_adj = precio_actual + exit_cost
+            pnl = (posicion['entry_price'] - precio_actual_adj) * posicion['capital_riesgo'] / posicion['entry_price']
 
         return pnl
 
@@ -751,23 +792,32 @@ class MotorBacktestCompleto:
         n_loss = (df_trades['net_pnl'] < 0).sum()
         win_rate = (n_wins / len(df_trades)) * 100 if len(df_trades) > 0 else 0
 
-        # Profit Factor
+        # CRÍTICO #5: Profit Factor sin np.inf (no serializable a JSON)
         gross_profit = df_trades[df_trades['net_pnl'] > 0]['net_pnl'].sum()
         gross_loss = abs(df_trades[df_trades['net_pnl'] < 0]['net_pnl'].sum())
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else np.inf
+        if gross_loss > EPSILON:
+            profit_factor = gross_profit / gross_loss
+        elif gross_profit > EPSILON:
+            profit_factor = 999.99  # Cap máximo razonable
+        else:
+            profit_factor = 1.0  # Break-even
 
-        # Sharpe Ratio
+        # CRÍTICO #1: Sharpe Ratio con factor correcto para M15 (no 252)
         if len(returns) > 1:
-            sharpe = (np.mean(returns) / np.std(returns)) * np.sqrt(252) if np.std(returns) > 0 else 0
+            sharpe = (np.mean(returns) / np.std(returns)) * np.sqrt(BARS_PER_YEAR_M15) if np.std(returns) > EPSILON else 0
         else:
             sharpe = 0
 
-        # Sortino Ratio
-        negative_returns = returns[returns < 0]
-        if len(negative_returns) > 1:
-            sortino = (np.mean(returns) / np.std(negative_returns)) * np.sqrt(252) if np.std(negative_returns) > 0 else 0
+        # ALTO #7: Sortino Ratio con downside deviation correcta
+        downside_returns = returns[returns < 0]
+        if len(downside_returns) > 0:
+            downside_deviation = np.sqrt(np.mean(downside_returns**2))
+            if downside_deviation > EPSILON:
+                sortino = (np.mean(returns) / downside_deviation) * np.sqrt(BARS_PER_YEAR_M15)
+            else:
+                sortino = 0
         else:
-            sortino = 0
+            sortino = 0  # Sin pérdidas = no downside risk
 
         # Max Drawdown
         equity_values = df_equity['equity'].values
@@ -779,10 +829,13 @@ class MotorBacktestCompleto:
         drawdowns = drawdown[drawdown < 0]
         avg_dd = abs(drawdowns.mean()) * 100 if len(drawdowns) > 0 else 0
 
-        # Calmar Ratio
+        # ALTO #8: Calmar Ratio con validación robusta
         years = (df_equity['timestamp'].iloc[-1] - df_equity['timestamp'].iloc[0]).days / 365.25
         annual_return = total_return / years if years > 0 else 0
-        calmar = (annual_return / max_dd) if max_dd > 0 else 0
+        if max_dd > 0.01:  # Al menos 1bp de drawdown
+            calmar = annual_return / max_dd
+        else:
+            calmar = 999.99 if annual_return > 0 else 0
 
         metricas = {
             'n_trades': len(df_trades),
