@@ -102,7 +102,8 @@ class GeneradorSistematicoFeatures:
             return False
 
         # Verificar que tenga varianza
-        if serie.std() == 0:
+        # CRÍTICO #9 CORREGIDO: Usar tolerancia epsilon para comparación de floats
+        if np.isclose(serie.std(), 0, atol=1e-10):
             return False
 
         # Verificar valores infinitos
@@ -142,7 +143,8 @@ class GeneradorSistematicoFeatures:
                         nombre = f"{op_name}_{n}({variable})"
                         self._agregar_feature(nombre, resultado)
                     except Exception as e:
-                        pass  # Silenciosamente ignorar errores
+                        # CRÍTICO #10 CORREGIDO: Logging en lugar de silenciar errores
+                        logger.debug(f"Error en {op_name}_{n}({variable}): {str(e)}")
                     finally:
                         pbar.update(1)
 
@@ -158,8 +160,9 @@ class GeneradorSistematicoFeatures:
                     resultado = op_func(serie)
                     nombre = f"{op_name}({variable})"
                     self._agregar_feature(nombre, resultado)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # CRÍTICO #10 CORREGIDO: Logging en lugar de silenciar errores
+                    logger.debug(f"Error en {op_name}({variable}): {str(e)}")
 
         logger.info(f"✓ Features básicos generados: {self.features_generados}")
 
@@ -247,8 +250,9 @@ class GeneradorSistematicoFeatures:
                         resultado = op_func(serie, n)
                         nombre = f"{op_name}_{n}({var_name})"
                         self._agregar_feature(nombre, resultado)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # CRÍTICO #10 CORREGIDO: Logging en lugar de silenciar errores
+                        logger.debug(f"Error en {op_name}_{n}({var_name}): {str(e)}")
 
         logger.info(f"✓ Total features hasta ahora: {self.features_generados}")
 
@@ -317,7 +321,8 @@ class GeneradorSistematicoFeatures:
                 self._agregar_feature(nombre, resultado)
 
             except Exception as e:
-                pass
+                # CRÍTICO #10 CORREGIDO: Logging en lugar de silenciar errores
+                logger.debug(f"Error en composición {nombre}: {str(e)}")
 
         logger.info(f"✓ Composiciones generadas: {len(composiciones)}")
 
@@ -363,8 +368,9 @@ class GeneradorSistematicoFeatures:
                 ema_ratio = ema_m / ema_n
                 self._agregar_feature(f"EMA_{m}_EMA_{n}_ratio", ema_ratio)
 
-            except Exception:
-                pass
+            except Exception as e:
+                # CRÍTICO #10 CORREGIDO: Logging en lugar de silenciar errores
+                logger.debug(f"Error generando EMA crossover: {str(e)}")
 
         logger.info(f"✓ Comparaciones temporales generadas")
 

@@ -283,6 +283,10 @@ class OperadoresPuros:
             >>> close = pd.Series([100, 102, 98, 105, 101, 99])
             >>> P(close, 75, 5)  # Percentil 75 en ventana de 5
         """
+        # CRÍTICO #8 CORREGIDO: Validar que k esté en rango [0, 100]
+        if not (0 <= k <= 100):
+            raise ValueError(f"Percentil k debe estar entre 0 y 100, recibido: {k}")
+
         return x.rolling(window=n, min_periods=n).quantile(k / 100.0)
 
     @staticmethod
