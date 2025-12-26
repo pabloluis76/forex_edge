@@ -476,7 +476,13 @@ class AnalisisRobustez:
             # 3. No hay períodos con IC muy negativo (< -0.02)
 
             pct_positivos = n_positivos / n_total
-            cv = abs(ic_std / ic_mean) if ic_mean != 0 else np.inf
+
+            # CRÍTICO #3 CORREGIDO: No retornar np.inf, usar np.nan
+            if np.isclose(ic_mean, 0, atol=1e-10):
+                cv = np.nan
+            else:
+                cv = abs(ic_std / ic_mean)
+
             tiene_muy_negativos = ic_min < -0.02
 
             if pct_positivos >= 0.80 and cv < 0.50 and not tiene_muy_negativos:

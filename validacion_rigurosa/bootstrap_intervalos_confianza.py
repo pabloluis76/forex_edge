@@ -223,7 +223,9 @@ class BootstrapIntervalosConfianza:
         """
         cumret = np.cumprod(1 + retornos)
         running_max = np.maximum.accumulate(cumret)
-        drawdown = (cumret - running_max) / running_max
+
+        # CRÍTICO #2 CORREGIDO: Evitar división por cero si running_max es 0
+        drawdown = (cumret - running_max) / np.maximum(running_max, 1e-10)
         max_dd = np.abs(np.min(drawdown))
         return max_dd
 

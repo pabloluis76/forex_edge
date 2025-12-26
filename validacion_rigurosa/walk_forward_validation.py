@@ -547,7 +547,8 @@ class WalkForwardValidation:
         vol = retornos_estrategia.std() * np.sqrt(252) * 100  # En porcentaje
 
         # Sharpe Ratio
-        sharpe = (ret_anual / vol) if vol > 0 else 0
+        # CRÍTICO #4 CORREGIDO: Usar np.isclose para evitar problemas con floats muy pequeños
+        sharpe = (ret_anual / vol) if not np.isclose(vol, 0, atol=1e-10) else 0.0
 
         # Max Drawdown
         cumret = (1 + retornos_estrategia).cumprod()
