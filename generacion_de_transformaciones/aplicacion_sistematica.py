@@ -181,14 +181,18 @@ class GeneradorSistematicoFeatures:
         C = self.df['close']
 
         # Ratios
+        # CRÍTICO #7 CORREGIDO: Usar np.where en lugar de offset después
+        # Offset se sumaba DESPUÉS de (H-L), cuando debería validarse ANTES
+        HL_diff = H - L
+
         ratios = {
             'C_O_ratio': C / O,
             'H_L_ratio': H / L,
             'C_H_ratio': C / H,
             'C_L_ratio': C / L,
-            'CL_HL_ratio': (C - L) / (H - L + 1e-10),
-            'HC_HL_ratio': (H - C) / (H - L + 1e-10),
-            'CO_HL_ratio': (C - O) / (H - L + 1e-10),
+            'CL_HL_ratio': np.where(HL_diff != 0, (C - L) / HL_diff, 0.0),
+            'HC_HL_ratio': np.where(HL_diff != 0, (H - C) / HL_diff, 0.0),
+            'CO_HL_ratio': np.where(HL_diff != 0, (C - O) / HL_diff, 0.0),
         }
 
         for nombre, serie in ratios.items():

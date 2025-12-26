@@ -201,7 +201,10 @@ class OperadoresPuros:
         """
         mean = x.rolling(window=n, min_periods=n).mean()
         std = x.rolling(window=n, min_periods=n).std()
-        return (x - mean) / std
+
+        # CRÍTICO #5 CORREGIDO: Evitar división por cero cuando std=0
+        std_safe = std.replace(0, 1e-10)
+        return (x - mean) / std_safe
 
     @staticmethod
     def Pos(x: pd.Series, n: int) -> pd.Series:
@@ -227,7 +230,11 @@ class OperadoresPuros:
         """
         min_val = x.rolling(window=n, min_periods=n).min()
         max_val = x.rolling(window=n, min_periods=n).max()
-        return (x - min_val) / (max_val - min_val)
+
+        # CRÍTICO #6 CORREGIDO: Evitar división por cero cuando max=min (rango=0)
+        rango = max_val - min_val
+        rango_safe = rango.replace(0, 1e-10)
+        return (x - min_val) / rango_safe
 
     @staticmethod
     def Rank(x: pd.Series, n: int) -> pd.Series:
