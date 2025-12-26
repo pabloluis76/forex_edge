@@ -721,8 +721,9 @@ class PruebasRobustez:
         gross_profit = np.sum(returns[returns > 0])
         gross_loss = abs(np.sum(returns[returns < 0]))
 
+        # CRÍTICO CORREGIDO: No retornar np.inf, usar valor finito alto
         if gross_loss == 0:
-            return np.inf if gross_profit > 0 else 1.0
+            return 999.99 if gross_profit > 0 else 1.0
 
         return gross_profit / gross_loss
 

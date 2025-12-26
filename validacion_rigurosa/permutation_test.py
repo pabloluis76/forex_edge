@@ -237,8 +237,9 @@ class PermutationTest:
         suma_ganancias = np.sum(ganancias) if len(ganancias) > 0 else 0
         suma_perdidas = np.abs(np.sum(perdidas)) if len(perdidas) > 0 else 0
 
+        # CRÍTICO CORREGIDO: No retornar np.inf, usar valor finito alto
         if suma_perdidas == 0:
-            return np.inf if suma_ganancias > 0 else 0.0
+            return 999.99 if suma_ganancias > 0 else 0.0
 
         pf = suma_ganancias / suma_perdidas
         return pf
