@@ -255,8 +255,12 @@ class ProcesoConsenso:
         n_metodos_total = len(self.rankings)
 
         # Clasificar por consenso
+        # CRÍTICO #3 CORREGIDO: Criterio consistente para consenso fuerte
+        # Umbral = max(5, 80% de métodos totales) para evitar inconsistencias
+        umbral_fuerte = max(5, int(n_metodos_total * 0.8))
+
         for feature, count in feature_counts.items():
-            if count >= 5 or count >= n_metodos_total * 0.8:
+            if count >= umbral_fuerte:
                 self.consenso_fuerte.add(feature)
             elif count >= 3:
                 self.consenso_medio.add(feature)
@@ -346,7 +350,9 @@ class ProcesoConsenso:
             # Criterio de aprobación: ≥60% de checks (reducido de 75%)
             # MODIFICADO: Umbral más permisivo para incluir consenso medio
             umbral_aprobacion = 0.75 if feature in self.consenso_fuerte else 0.60
-            if checks_passed / checks_total >= umbral_aprobacion:
+
+            # CRÍTICO #1 CORREGIDO: Validar checks_total > 0 antes de división
+            if checks_total > 0 and checks_passed / checks_total >= umbral_aprobacion:
                 features_aprobados.append({
                     'Feature': feature,
                     'N_metodos': n_metodos,
@@ -574,8 +580,9 @@ class ProcesoConsenso:
                 continue
 
             # Calcular IC
-            from scipy.stats import pearsonr
-            ic, _ = pearsonr(x_split[mask], y_split[mask])
+            # CRÍTICO #2 CORREGIDO: Usar Spearman consistentemente (no Pearson)
+            from scipy.stats import spearmanr
+            ic, _ = spearmanr(x_split[mask], y_split[mask])
             ics.append(ic)
 
         if len(ics) < 2:
