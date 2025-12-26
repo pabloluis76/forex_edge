@@ -23,9 +23,17 @@ Author: Sistema de Edge-Finding Forex
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 import warnings
 warnings.filterwarnings('ignore')
+
+# Importar normalización de timestamps
+try:
+    from backtest.normalizar_timestamps import NormalizadorTimestamps
+    NORMALIZACION_DISPONIBLE = True
+except ImportError:
+    from normalizar_timestamps import NormalizadorTimestamps
+    NORMALIZACION_DISPONIBLE = True
 
 
 class PreparadorDatosBacktest:
@@ -208,6 +216,172 @@ class PreparadorDatosBacktest:
             for par in pares:
                 n_filas = (df_raw_ohlcv['pair'] == par).sum()
                 print(f"  {par}: {n_filas:,} filas")
+
+            print(f"{'='*80}")
+
+        return df_raw_ohlcv
+
+    def preparar_raw_ohlcv_normalizado(
+        self,
+        pares: List[str],
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+        normalizar: bool = True,
+        eliminar_fines_semana: bool = True
+    ) -> pd.DataFrame:
+        """
+        Prepara tabla raw_ohlcv con timestamps NORMALIZADOS y SINCRONIZADOS.
+
+        IMPORTANTE: Este método asegura que todos los pares tengan exactamente
+        los mismos timestamps, evitando problemas de merge/join.
+
+        Parameters:
+        -----------
+        pares : List[str]
+            Lista de pares a incluir
+        fecha_inicio : str, optional
+            Fecha de inicio (formato: 'YYYY-MM-DD')
+        fecha_fin : str, optional
+            Fecha de fin (formato: 'YYYY-MM-DD')
+        normalizar : bool
+            Normalizar y sincronizar timestamps (default: True)
+        eliminar_fines_semana : bool
+            Eliminar timestamps sin datos (default: True)
+
+        Returns:
+        --------
+        df_raw_ohlcv : pd.DataFrame
+            Tabla raw_ohlcv consolidada con timestamps sincronizados
+        """
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"PREPARANDO TABLA raw_ohlcv {'CON NORMALIZACIÓN' if normalizar else 'SIN NORMALIZACIÓN'}")
+            print(f"{'='*80}")
+            print(f"Pares: {', '.join(pares)}")
+            if fecha_inicio:
+                print(f"Fecha inicio: {fecha_inicio}")
+            if fecha_fin:
+                print(f"Fecha fin: {fecha_fin}")
+            print()
+
+        # Cargar cada par como DataFrame separado
+        dfs_pares = {}
+
+        for par in pares:
+            df_par = self.cargar_par(par)
+
+            if df_par is not None:
+                # Filtrar por fechas si se especifican
+                if fecha_inicio or fecha_fin:
+                    mask = pd.Series([True] * len(df_par))
+
+                    if fecha_inicio:
+                        mask &= (df_par['timestamp'] >= pd.Timestamp(fecha_inicio, tz='UTC'))
+
+                    if fecha_fin:
+                        mask &= (df_par['timestamp'] <= pd.Timestamp(fecha_fin, tz='UTC'))
+
+                    df_par = df_par[mask].copy()
+
+                # Convertir a formato con timestamp como index
+                df_par_indexed = df_par.set_index('timestamp')
+                dfs_pares[par] = df_par_indexed
+
+        if len(dfs_pares) == 0:
+            raise ValueError("No se pudieron cargar datos de ningún par")
+
+        # Normalizar timestamps si se solicita
+        if normalizar and NORMALIZACION_DISPONIBLE:
+            normalizador = NormalizadorTimestamps(
+                timeframe=self.timeframe,
+                max_gap_fill='1H',  # Rellenar gaps < 1 hora
+                verbose=self.verbose
+            )
+
+            # Normalizar todos los pares
+            dfs_normalizados = normalizador.normalizar_multiples_pares(
+                dfs_pares,
+                fecha_inicio=pd.Timestamp(fecha_inicio, tz='UTC') if fecha_inicio else None,
+                fecha_fin=pd.Timestamp(fecha_fin, tz='UTC') if fecha_fin else None
+            )
+
+            # Eliminar fines de semana si se solicita
+            if eliminar_fines_semana:
+                dfs_normalizados = normalizador.eliminar_filas_con_todos_nan(
+                    dfs_normalizados,
+                    columnas_criticas=['close']
+                )
+
+            # Convertir de vuelta a formato largo con columna 'pair'
+            dfs_lista = []
+            for par, df_norm in dfs_normalizados.items():
+                df_temp = df_norm.reset_index()
+                df_temp.rename(columns={'index': 'timestamp'}, inplace=True)
+                df_temp['pair'] = par
+                dfs_lista.append(df_temp)
+
+            # Concatenar
+            df_raw_ohlcv = pd.concat(dfs_lista, ignore_index=True)
+
+        else:
+            # Sin normalización (método original)
+            if self.verbose and not normalizar:
+                print("⚠ ADVERTENCIA: Normalización desactivada - puede haber desincronización")
+
+            dfs_lista = []
+            for par, df_indexed in dfs_pares.items():
+                df_temp = df_indexed.reset_index()
+                df_temp['pair'] = par
+                dfs_lista.append(df_temp)
+
+            df_raw_ohlcv = pd.concat(dfs_lista, ignore_index=True)
+
+        # Ordenar por timestamp y par
+        df_raw_ohlcv.sort_values(['timestamp', 'pair'], inplace=True)
+        df_raw_ohlcv.reset_index(drop=True, inplace=True)
+
+        # Verificar estructura
+        columnas_requeridas = ['timestamp', 'pair', 'open', 'high', 'low', 'close', 'volume']
+        columnas_presentes = [col for col in columnas_requeridas if col in df_raw_ohlcv.columns]
+
+        if len(columnas_presentes) < len(columnas_requeridas):
+            faltantes = set(columnas_requeridas) - set(columnas_presentes)
+            raise ValueError(f"Faltan columnas requeridas: {faltantes}")
+
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"TABLA raw_ohlcv CREADA")
+            print(f"{'='*80}")
+            print(f"Total filas: {len(df_raw_ohlcv):,}")
+            print(f"Pares únicos: {df_raw_ohlcv['pair'].nunique()}")
+            print(f"Período: {df_raw_ohlcv['timestamp'].min()} → {df_raw_ohlcv['timestamp'].max()}")
+
+            # Estadísticas por par
+            print(f"\nFILAS POR PAR:")
+            for par in pares:
+                n_filas = (df_raw_ohlcv['pair'] == par).sum()
+                print(f"  {par}: {n_filas:,} filas")
+
+            # Verificar sincronización
+            if normalizar:
+                timestamps_por_par = {}
+                for par in pares:
+                    timestamps_par = set(df_raw_ohlcv[df_raw_ohlcv['pair'] == par]['timestamp'])
+                    timestamps_por_par[par] = timestamps_par
+
+                if len(timestamps_por_par) > 1:
+                    pares_list = list(timestamps_por_par.keys())
+                    todos_iguales = all(
+                        timestamps_por_par[pares_list[0]] == timestamps_por_par[p]
+                        for p in pares_list[1:]
+                    )
+
+                    if todos_iguales:
+                        print(f"\n✓ SINCRONIZACIÓN VERIFICADA: Todos los pares tienen timestamps idénticos")
+                    else:
+                        print(f"\n⚠ ADVERTENCIA: Los pares tienen timestamps diferentes")
+                        for par in pares_list:
+                            print(f"    {par}: {len(timestamps_por_par[par])} timestamps únicos")
 
             print(f"{'='*80}")
 
