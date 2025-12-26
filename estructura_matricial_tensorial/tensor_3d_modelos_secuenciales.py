@@ -188,16 +188,34 @@ class Tensor3DSecuencial:
             current_idx = i + self.lookback
             future_idx = current_idx + horizonte
 
-            if future_idx < len(precios):
-                if tipo == 'retorno':
-                    # (P_{t+h} - P_t) / P_t
-                    y[i] = (precios[future_idx] - precios[current_idx]) / precios[current_idx]
-                elif tipo == 'log_retorno':
-                    # ln(P_{t+h} / P_t)
-                    y[i] = np.log(precios[future_idx] / precios[current_idx])
-                elif tipo == 'direccion':
-                    # sign(P_{t+h} - P_t)
-                    y[i] = np.sign(precios[future_idx] - precios[current_idx])
+            # Validar índices
+            if current_idx < 0 or current_idx >= len(precios):
+                y[i] = np.nan
+                continue
+
+            if future_idx >= len(precios):
+                y[i] = np.nan
+                continue
+
+            # Validar precios son positivos y no cero
+            if precios[current_idx] <= 0 or precios[future_idx] <= 0:
+                y[i] = np.nan
+                continue
+
+            if tipo == 'retorno':
+                # (P_{t+h} - P_t) / P_t con protección
+                y[i] = (precios[future_idx] - precios[current_idx]) / precios[current_idx]
+            elif tipo == 'log_retorno':
+                # ln(P_{t+h} / P_t) con protección
+                ratio = precios[future_idx] / precios[current_idx]
+                # El ratio debería ser siempre positivo si ambos precios > 0
+                if ratio > 0:
+                    y[i] = np.log(ratio)
+                else:
+                    y[i] = np.nan
+            elif tipo == 'direccion':
+                # sign(P_{t+h} - P_t)
+                y[i] = np.sign(precios[future_idx] - precios[current_idx])
 
         self.y = y
 

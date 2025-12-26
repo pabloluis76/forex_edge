@@ -153,8 +153,11 @@ class MatrizTransformacionesTiempo:
             # y_t = (P_{t+h} - P_t) / P_t
             self.y = precios.pct_change(horizonte).shift(-horizonte)
         elif tipo == 'log_retorno':
-            # y_t = ln(P_{t+h} / P_t)
-            self.y = np.log(precios / precios.shift(horizonte)).shift(-horizonte)
+            # y_t = ln(P_{t+h} / P_t) con protección
+            ratio = precios / precios.shift(horizonte)
+            # Clip para evitar log de valores <= 0
+            ratio = ratio.clip(lower=1e-10)
+            self.y = np.log(ratio).shift(-horizonte)
         elif tipo == 'direccion':
             # y_t = sign(P_{t+h} - P_t)
             retornos = precios.pct_change(horizonte).shift(-horizonte)
@@ -163,10 +166,17 @@ class MatrizTransformacionesTiempo:
             raise ValueError(f"Tipo desconocido: {tipo}")
 
         # Eliminar valores NaN al final (por el shift)
+        # IMPORTANTE: Usar índices numéricos para consistencia
         valid_idx = ~self.y.isna()
-        self.y = self.y[valid_idx].values
-        self.X = self.X[valid_idx]
-        self.timestamps = self.timestamps[valid_idx]
+        valid_indices = np.where(valid_idx.values)[0]
+
+        self.y = self.y[valid_idx].values  # Series -> array
+        self.X = self.X[valid_indices]      # Usar índices numéricos
+        self.timestamps = self.timestamps[valid_indices]
+
+        # Verificar alineación
+        assert len(self.y) == len(self.X) == len(self.timestamps), \
+            f"Desalineación: y={len(self.y)}, X={len(self.X)}, ts={len(self.timestamps)}"
 
         logger.info(f"✓ Vector y creado: {self.y.shape}")
         logger.info(f"  min={self.y.min():.6f}, max={self.y.max():.6f}")
