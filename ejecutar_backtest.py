@@ -31,6 +31,29 @@ from backtest.configuracion_costos_adicionales import ConfiguracionCostosAdicion
 from backtest.pruebas_robustez import PruebasRobustez
 
 
+class LogCapture(logging.Handler):
+    """Handler que captura mensajes de logging para el resumen final."""
+
+    def __init__(self):
+        super().__init__()
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        """Captura mensajes WARNING y ERROR."""
+        if record.levelno >= logging.ERROR:
+            self.errors.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'linea': record.lineno
+            })
+        elif record.levelno == logging.WARNING:
+            self.warnings.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module
+            })
+
+
 class EjecutorBacktest:
     """
     Ejecutor del módulo Backtest.
@@ -124,6 +147,10 @@ class EjecutorBacktest:
         # Resultados
         self.resultados: Dict[str, dict] = {}
 
+        # Tiempos de ejecución
+        self.tiempo_inicio = None
+        self.tiempo_fin = None
+
         if self.verbose:
             print("="*80)
             print("EJECUTOR: BACKTEST COMPLETO")
@@ -152,6 +179,12 @@ class EjecutorBacktest:
         )
 
         self.logger = logging.getLogger(__name__)
+
+        # Agregar LogCapture global
+        global log_capture
+        log_capture = LogCapture()
+        log_capture.setLevel(logging.WARNING)
+        logging.getLogger().addHandler(log_capture)
 
     def _detectar_pares_disponibles(self) -> List[str]:
         """
@@ -475,6 +508,7 @@ class EjecutorBacktest:
         """
         Ejecuta backtest completo para todos los pares.
         """
+        self.tiempo_inicio = datetime.now()
         self.logger.info(f"Iniciando backtest para {len(self.pares)} pares")
 
         # Limpiar archivos viejos si está habilitado
@@ -526,67 +560,223 @@ class EjecutorBacktest:
                 resultado_robustez = self.ejecutar_pruebas_robustez(par)
                 self.resultados[par]['robustez'] = resultado_robustez is not None
 
+        self.tiempo_fin = datetime.now()
+
         # Imprimir resumen final
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen de la ejecución."""
+        """Imprime resumen detallado con logs capturados."""
         exitosos = sum(1 for r in self.resultados.values() if r['exito'])
         fallidos = len(self.resultados) - exitosos
-
         total_trades = sum(r['n_trades'] for r in self.resultados.values() if r['exito'])
 
+        tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
+
         print(f"\n{'='*80}")
-        print(f"RESUMEN DE EJECUCIÓN")
+        print(f"RESUMEN FINAL - BACKTEST COMPLETO")
         print(f"{'='*80}")
-        print(f"\nPares procesados: {len(self.resultados)}")
-        print(f"  ✓ Exitosos: {exitosos}")
-        print(f"  ✗ Fallidos: {fallidos}")
+
+        # Información temporal
+        print(f"\nINFORMACIÓN TEMPORAL:")
+        print(f"  Inicio: {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Fin:    {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"  Duración total: {self._formatear_duracion(tiempo_total)}")
+
+        # Tabla de resultados
+        print(f"\nRESULTADOS POR PAR:")
+        print("-" * 100)
+        print(f"{'Par':<10} │ {'Estado':<6} │ {'Trades':<8} │ {'Return %':<10} │ {'Sharpe':<8} │ {'Max DD %':<10}")
+        print("-" * 100)
+
+        for par in self.pares:
+            res = self.resultados[par]
+
+            if res['exito']:
+                metricas = res['metricas']
+                ret = metricas.get('total_return', 0)
+                sharpe = metricas.get('sharpe_ratio', 0)
+                maxdd = metricas.get('max_drawdown', 0)
+
+                print(
+                    f"{par:<10} │ {'✓':<6} │ {res['n_trades']:<8} │ "
+                    f"{ret:>+9.2f} │ {sharpe:>7.2f} │ {maxdd:>9.2f}"
+                )
+            else:
+                print(
+                    f"{par:<10} │ {'✗':<6} │ {'N/A':<8} │ {'N/A':<10} │ {'N/A':<8} │ {'N/A':<10}"
+                )
+                print(f"           Error: {res.get('error', 'Desconocido')}")
+
+        print("-" * 100)
+
+        # Estadísticas globales
+        print(f"\nESTADÍSTICAS GLOBALES:")
+        print(f"  Pares procesados exitosamente: {exitosos}/{len(self.resultados)}")
+        print(f"  Total trades ejecutados: {total_trades:,}")
 
         if exitosos > 0:
-            print(f"\nEstadísticas:")
-            print(f"  - Total trades: {total_trades}")
-            print(f"  - Promedio trades por par: {total_trades/exitosos:.0f}")
+            print(f"  Promedio trades por par: {total_trades/exitosos:.0f}")
 
             # Métricas consolidadas
             returns = []
             sharpes = []
+            sortinos = []
+            calmars = []
             max_dds = []
+            win_rates = []
 
             for resultado in self.resultados.values():
                 if resultado['exito']:
-                    metricas = resultado['metricas']
-                    returns.append(metricas.get('total_return', 0))
-                    sharpes.append(metricas.get('sharpe_ratio', 0))
-                    max_dds.append(metricas.get('max_drawdown', 0))
+                    m = resultado['metricas']
+                    returns.append(m.get('total_return', 0))
+                    sharpes.append(m.get('sharpe_ratio', 0))
+                    sortinos.append(m.get('sortino_ratio', 0))
+                    calmars.append(m.get('calmar_ratio', 0))
+                    max_dds.append(m.get('max_drawdown', 0))
+                    win_rates.append(m.get('win_rate', 0))
 
-            print(f"\nMétricas agregadas:")
-            print(f"  - Return promedio: {np.mean(returns):+.2f}%")
-            print(f"  - Sharpe promedio: {np.mean(sharpes):.2f}")
-            print(f"  - Max DD promedio: {np.mean(max_dds):.2f}%")
+            print(f"\n  Métricas agregadas:")
+            print(f"    Return promedio: {np.mean(returns):+.2f}%")
+            print(f"    Sharpe promedio: {np.mean(sharpes):.2f}")
+            print(f"    Sortino promedio: {np.mean(sortinos):.2f}")
+            print(f"    Calmar promedio: {np.mean(calmars):.2f}")
+            print(f"    Max DD promedio: {np.mean(max_dds):.2f}%")
+            print(f"    Win rate promedio: {np.mean(win_rates):.1f}%")
 
-        print(f"\nArchivos generados:")
-        print(f"  - Métricas: {self.metricas_dir}/")
-        print(f"  - Trades: {self.trades_dir}/")
-        print(f"  - Equity curves: {self.equity_dir}/")
-        print(f"  - Robustez: {self.robustez_dir}/")
+        print(f"  Tiempo promedio por par: {self._formatear_duracion(tiempo_total/len(self.pares))}")
 
-        if fallidos > 0:
-            print(f"\n⚠️  Pares con errores:")
-            for par, resultado in self.resultados.items():
-                if not resultado['exito']:
-                    print(f"  - {par}: {resultado['error']}")
+        # Métricas detalladas por par
+        print(f"\nMÉTRICAS DETALLADAS POR PAR:")
+        for par in self.pares:
+            res = self.resultados[par]
 
+            if not res['exito']:
+                continue
+
+            print(f"\n  {par}:")
+            m = res['metricas']
+
+            print(f"    Rendimiento:")
+            print(f"      Total return: {m.get('total_return', 0):+.2f}%")
+            print(f"      CAGR: {m.get('cagr', 0):+.2f}%")
+            print(f"      Volatilidad anual: {m.get('annual_volatility', 0):.2f}%")
+
+            print(f"    Ratios ajustados por riesgo:")
+            print(f"      Sharpe ratio: {m.get('sharpe_ratio', 0):.2f}")
+            print(f"      Sortino ratio: {m.get('sortino_ratio', 0):.2f}")
+            print(f"      Calmar ratio: {m.get('calmar_ratio', 0):.2f}")
+
+            print(f"    Drawdown:")
+            print(f"      Max drawdown: {m.get('max_drawdown', 0):.2f}%")
+            print(f"      Avg drawdown: {m.get('avg_drawdown', 0):.2f}%")
+
+            print(f"    Trades:")
+            print(f"      Total trades: {res['n_trades']}")
+            print(f"      Win rate: {m.get('win_rate', 0):.1f}%")
+            print(f"      Profit factor: {m.get('profit_factor', 0):.2f}")
+            print(f"      Avg win: {m.get('avg_win', 0):.2f}%")
+            print(f"      Avg loss: {m.get('avg_loss', 0):.2f}%")
+
+            if res.get('robustez', False):
+                print(f"    Robustez: ✓ Pruebas completadas")
+            else:
+                print(f"    Robustez: ✗ No ejecutadas")
+
+        # Logs capturados
+        print(f"\nLOGS CAPTURADOS:")
+
+        if log_capture.warnings:
+            print(f"\n  ⚠️  WARNINGS ({len(log_capture.warnings)}):")
+            for i, warn in enumerate(log_capture.warnings[:10], 1):
+                print(f"    {i}. [{warn['modulo']}] {warn['mensaje']}")
+            if len(log_capture.warnings) > 10:
+                print(f"    ... y {len(log_capture.warnings) - 10} warnings más")
+        else:
+            print(f"  ✓ No se registraron warnings")
+
+        if log_capture.errors:
+            print(f"\n  ❌ ERRORS ({len(log_capture.errors)}):")
+            for i, err in enumerate(log_capture.errors[:10], 1):
+                print(f"    {i}. [{err['modulo']}:{err['linea']}] {err['mensaje']}")
+            if len(log_capture.errors) > 10:
+                print(f"    ... y {len(log_capture.errors) - 10} errors más")
+        else:
+            print(f"  ✓ No se registraron errores")
+
+        # Archivos generados
+        archivos_json = list(self.metricas_dir.glob("*.json"))
+        archivos_csv_trades = list(self.trades_dir.glob("*.csv"))
+        archivos_csv_equity = list(self.equity_dir.glob("*.csv"))
+        archivos_robustez = list(self.robustez_dir.glob("*.json"))
+
+        print(f"\nARCHIVOS GENERADOS:")
+        print(f"  JSON métricas: {len(archivos_json)} archivos")
+        print(f"  CSV trades: {len(archivos_csv_trades)} archivos")
+        print(f"  CSV equity curves: {len(archivos_csv_equity)} archivos")
+        print(f"  JSON robustez: {len(archivos_robustez)} archivos")
+        print(f"  Ubicación: {self.output_dir}")
+
+        # Conclusión
         print(f"\n{'='*80}")
-        print(f"BACKTEST REALISTA")
+        if exitosos == len(self.resultados):
+            print(f"✓ BACKTEST COMPLETADO EXITOSAMENTE")
+            print(f"  Pares procesados: {exitosos}/{len(self.pares)}")
+            print(f"  Total trades: {total_trades:,}")
+
+            print(f"\nSIMULACIÓN CON COSTOS REALES:")
+            print(f"  ✓ Spreads variables por hora y día")
+            print(f"  ✓ Slippage dinámico basado en volatilidad")
+            print(f"  ✓ Swap overnight")
+            print(f"  ✓ Stop loss y take profit basados en ATR")
+
+            print(f"\nPRÓXIMOS PASOS:")
+            if total_trades > 0:
+                print(f"  1. Analizar equity curves en: {self.equity_dir}")
+                print(f"  2. Revisar distribución de trades")
+                print(f"  3. Evaluar métricas por período (train/validation/test)")
+                print(f"  4. Verificar resultados de pruebas de robustez")
+                print(f"  5. Decidir si estrategia es viable para trading en vivo")
+            else:
+                print(f"  ⚠️  No se generaron trades")
+                print(f"  1. Revisar lógica de generación de señales")
+                print(f"  2. Verificar features de entrada")
+                print(f"  3. Ajustar umbrales de entrada")
+        else:
+            print(f"⚠️  BACKTEST COMPLETADO CON ERRORES")
+            print(f"  Pares exitosos: {exitosos}/{len(self.pares)}")
+            print(f"  Revisar errores arriba para diagnóstico")
+
+            if fallidos > 0:
+                print(f"\n  Pares con errores:")
+                for par, resultado in self.resultados.items():
+                    if not resultado['exito']:
+                        print(f"    - {par}: {resultado['error']}")
+
+        print(f"\nNOTA: Estos resultados reflejan trading REAL con costos reales,")
+        print(f"      no backtests optimistas. Las métricas son conservadoras.")
         print(f"{'='*80}")
-        print(f"\nSIMULACIÓN CON COSTOS REALES:")
-        print(f"  - Spreads variables por hora y día")
-        print(f"  - Slippage dinámico basado en volatilidad")
-        print(f"  - Swap overnight")
-        print(f"  - Stop loss y take profit basados en ATR")
-        print(f"\nEstos resultados reflejan trading REAL, no backtests optimistas.")
-        print(f"="*80)
+
+    def _formatear_duracion(self, segundos: float) -> str:
+        """
+        Formatea duración en formato legible.
+
+        Args:
+            segundos: Duración en segundos
+
+        Returns:
+            String formateado (ej: "45.2s", "12m 34s", "2h 15m")
+        """
+        if segundos < 60:
+            return f"{segundos:.1f}s"
+        elif segundos < 3600:
+            minutos = int(segundos // 60)
+            segs = int(segundos % 60)
+            return f"{minutos}m {segs}s"
+        else:
+            horas = int(segundos // 3600)
+            minutos = int((segundos % 3600) // 60)
+            return f"{horas}h {minutos}m"
 
 
 def main():
