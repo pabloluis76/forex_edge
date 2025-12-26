@@ -85,12 +85,38 @@ sys.path.insert(0, str(Path(__file__).parent))
 from consenso_metodos.tabla_consenso import TablaConsenso
 from consenso_metodos.proceso_consenso import ProcesoConsenso
 
+# Configurar logging con captura de errores
+class LogCapture(logging.Handler):
+    """Handler que captura mensajes de logging para el resumen final."""
+    def __init__(self):
+        super().__init__()
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        if record.levelno >= logging.ERROR:
+            self.errors.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'linea': record.lineno
+            })
+        elif record.levelno == logging.WARNING:
+            self.warnings.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module
+            })
+
 # Configurar logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Agregar capturador de logs
+log_capture = LogCapture()
+log_capture.setLevel(logging.WARNING)
+logging.getLogger().addHandler(log_capture)
 
 
 class EjecutorConsensoMetodos:
@@ -767,21 +793,29 @@ class EjecutorConsensoMetodos:
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen final."""
+        """Imprime resumen final detallado."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        logger.info("\n" + "="*80)
-        logger.info("RESUMEN FINAL - CONSENSO DE MÉTODOS")
-        logger.info("="*80)
+        print("\n" + "="*80)
+        print("RESUMEN FINAL - CONSENSO DE MÉTODOS")
+        print("="*80)
+
+        # Información temporal
+        print(f"\nInicio:    {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Fin:       {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Duración:  {self._formatear_duracion(tiempo_total)}")
 
         # Tabla de resultados
-        logger.info("\nRESULTADOS POR PAR:")
-        logger.info("-" * 100)
-        logger.info(f"{'Par':<10} │ {'Exito':<6} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Aprobados':<10} │ {'Tiempo (s)':<12}")
-        logger.info("-" * 100)
+        print(f"\n{'─'*80}")
+        print("RESULTADOS POR PAR")
+        print(f"{'─'*80}")
+        print(f"{'Par':<10} │ {'Estado':<8} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Aprobados':<10} │ {'Tiempo':<10}")
+        print("─" * 80)
 
         exitosos = 0
         total_aprobados = 0
+        total_fuerte = 0
+        total_medio = 0
 
         for par in self.pares:
             res = self.resultados[par]
@@ -792,43 +826,131 @@ class EjecutorConsensoMetodos:
                 n_medio = res['consenso']['tabla']['n_medio']
                 n_aprobados = res['consenso']['proceso']['n_aprobados']
                 total_aprobados += n_aprobados
+                total_fuerte += n_fuerte
+                total_medio += n_medio
 
-                logger.info(
-                    f"{par:<10} │ {'✓':<6} │ {n_fuerte:<8} │ {n_medio:<8} │ "
-                    f"{n_aprobados:<10} │ {res['tiempo_segundos']:<12.1f}"
+                print(
+                    f"{par:<10} │ {'✓ OK':<8} │ {n_fuerte:<8} │ {n_medio:<8} │ "
+                    f"{n_aprobados:<10} │ {res['tiempo_segundos']:<10.1f}s"
                 )
             else:
-                logger.info(
-                    f"{par:<10} │ {'✗':<6} │ {'N/A':<8} │ {'N/A':<8} │ "
-                    f"{'N/A':<10} │ {res['tiempo_segundos']:<12.1f}"
+                print(
+                    f"{par:<10} │ {'✗ ERROR':<8} │ {'N/A':<8} │ {'N/A':<8} │ "
+                    f"{'N/A':<10} │ {res['tiempo_segundos']:<10.1f}s"
                 )
-                logger.info(f"           Error: {res.get('error', 'Desconocido')}")
 
-        logger.info("-" * 100)
+        print("─" * 80)
 
         # Estadísticas globales
-        logger.info("\nESTADÍSTICAS GLOBALES:")
-        logger.info(f"  Pares procesados exitosamente: {exitosos}/{len(self.pares)}")
-        logger.info(f"  Features aprobados totales: {total_aprobados}")
-        logger.info(f"  Features promedio por par: {total_aprobados/exitosos:.0f}" if exitosos > 0 else "  N/A")
-        logger.info(f"  Tiempo total: {tiempo_total:.1f} segundos ({tiempo_total/60:.1f} minutos)")
-        logger.info(f"  Tiempo promedio por par: {tiempo_total/len(self.pares):.1f} segundos")
+        print(f"\n{'─'*80}")
+        print("ESTADÍSTICAS GLOBALES")
+        print(f"{'─'*80}")
+        print(f"  Pares procesados:              {exitosos}/{len(self.pares)}")
+        print(f"  Tasa de éxito:                 {exitosos/len(self.pares)*100:.1f}%")
+        print(f"  Features consenso fuerte:      {total_fuerte}")
+        print(f"  Features consenso medio:       {total_medio}")
+        print(f"  Features aprobados:            {total_aprobados}")
+        if exitosos > 0:
+            print(f"  Promedio aprobados/par:        {total_aprobados/exitosos:.0f}")
+        print(f"  Tiempo total:                  {self._formatear_duracion(tiempo_total)}")
+        print(f"  Tiempo promedio/par:           {tiempo_total/len(self.pares):.1f}s")
 
-        # Conclusión
-        logger.info("\n" + "="*80)
+        # Detalles por par
+        print(f"\n{'─'*80}")
+        print("MÉTRICAS DETALLADAS POR PAR")
+        print(f"{'─'*80}")
+
+        for par in self.pares:
+            res = self.resultados[par]
+            if res['exito']:
+                print(f"\n{par}:")
+
+                # Consenso Tabla
+                tabla = res['consenso']['tabla']
+                print(f"  Consenso Tabla:")
+                print(f"    • Fuerte (≥5 métodos):     {tabla['n_fuerte']}")
+                print(f"    • Medio (3-4 métodos):     {tabla['n_medio']}")
+                print(f"    • Sin consenso (≤2):       {tabla['n_sin_consenso']}")
+
+                # Consenso Proceso
+                proceso = res['consenso']['proceso']
+                print(f"  Verificación Cruzada:")
+                print(f"    • Features verificados:    {proceso.get('n_verificados', 0)}")
+                print(f"    • Features aprobados:      {proceso['n_aprobados']}")
+                print(f"    • Tasa aprobación:         {proceso.get('tasa_aprobacion', 0)*100:.1f}%")
+
+                # Rankings por método
+                if 'rankings' in res['consenso']['proceso']:
+                    rankings = res['consenso']['proceso']['rankings']
+                    print(f"  Métodos ejecutados:")
+                    for metodo, features in rankings.items():
+                        if isinstance(features, list):
+                            print(f"    • {metodo:<20}: {len(features)} features")
+
+        # Logs capturados
+        if log_capture.warnings or log_capture.errors:
+            print(f"\n{'─'*80}")
+            print("LOGS CAPTURADOS")
+            print(f"{'─'*80}")
+
+            print(f"  Total warnings:  {len(log_capture.warnings)}")
+            print(f"  Total errors:    {len(log_capture.errors)}")
+
+            # Mostrar warnings
+            if log_capture.warnings:
+                print(f"\n  Últimos warnings (máx 10):")
+                for w in log_capture.warnings[-10:]:
+                    print(f"    ⚠ [{w['modulo']}] {w['mensaje'][:70]}")
+
+            # Mostrar errores
+            if log_capture.errors:
+                print(f"\n  Errores encontrados:")
+                for e in log_capture.errors:
+                    print(f"    ✗ [{e['modulo']}:{e['linea']}] {e['mensaje'][:65]}")
+
+        # Archivos generados
+        print(f"\n{'─'*80}")
+        print("ARCHIVOS GENERADOS")
+        print(f"{'─'*80}")
+        archivos_csv = list(self.output_dir.glob("*.csv"))
+        archivos_json = list(self.output_dir.glob("*.json"))
+        print(f"  Archivos CSV:   {len(archivos_csv)}")
+        print(f"  Archivos JSON:  {len(archivos_json)}")
+        print(f"  Ubicación:      {self.output_dir}")
+
+        # Estado final
+        print(f"\n{'='*80}")
         if exitosos == len(self.pares):
-            logger.info("✓ CONSENSO COMPLETADO EXITOSAMENTE")
-            logger.info(f"  Todos los {len(self.pares)} pares procesados correctamente")
-            logger.info(f"  Resultados guardados en: {self.output_dir}")
-            logger.info("\nPRÓXIMO PASO:")
-            logger.info("  → Revisar features aprobados en cada par")
-            logger.info("  → Validación rigurosa (walk-forward, permutation test)")
-            logger.info("  → Construcción de estrategia final")
+            print("✓ CONSENSO COMPLETADO EXITOSAMENTE")
+            print(f"  {exitosos}/{len(self.pares)} pares procesados correctamente")
+            print(f"  {total_aprobados} features aprobados con evidencia convergente")
+            print(f"\nPRÓXIMOS PASOS:")
+            print("  1. Revisar features aprobados: {output_dir}/*_consenso_final.csv")
+            print("  2. Validación rigurosa: python ejecutar_validacion_rigurosa.py")
+            print("  3. Generar estrategias: python ejecutar_estrategia_emergente.py")
+        elif exitosos > 0:
+            print("⚠ CONSENSO COMPLETADO CON ERRORES PARCIALES")
+            print(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            print(f"  Revisar errores arriba para pares fallidos")
         else:
-            logger.info(f"⚠️  CONSENSO COMPLETADO CON ERRORES")
-            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            print("✗ CONSENSO FALLIDO")
+            print(f"  Ningún par pudo ser procesado")
+            print(f"  Revisar errores arriba")
 
-        logger.info("="*80)
+        print("="*80 + "\n")
+
+    def _formatear_duracion(self, segundos: float) -> str:
+        """Formatea duración en formato legible."""
+        if segundos < 60:
+            return f"{segundos:.1f}s"
+        elif segundos < 3600:
+            mins = int(segundos // 60)
+            secs = int(segundos % 60)
+            return f"{mins}m {secs}s"
+        else:
+            horas = int(segundos // 3600)
+            mins = int((segundos % 3600) // 60)
+            return f"{horas}h {mins}m"
 
 
 def main():
