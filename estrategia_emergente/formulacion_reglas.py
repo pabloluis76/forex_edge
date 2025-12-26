@@ -112,6 +112,16 @@ class FormulacionReglas:
             print(f"GENERANDO REGLAS DE ENTRADA")
             print(f"{'='*80}")
 
+        # CRÍTICO: Validar columnas requeridas antes de acceder
+        columnas_requeridas = ['Transformacion', 'IC']
+        columnas_faltantes = [col for col in columnas_requeridas if col not in self.transformaciones_validadas.columns]
+
+        if columnas_faltantes:
+            raise ValueError(
+                f"DataFrame de transformaciones falta columnas requeridas: {columnas_faltantes}\n"
+                f"Columnas presentes: {list(self.transformaciones_validadas.columns)}"
+            )
+
         self.reglas_long = []
         self.reglas_short = []
 

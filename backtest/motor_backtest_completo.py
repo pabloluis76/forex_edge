@@ -108,6 +108,70 @@ class MotorBacktestCompleto:
     # 1. DATA LOADER
     # ========================================================================
 
+    def _validar_columnas_requeridas(self):
+        """
+        CRÍTICO: Valida que los DataFrames tengan todas las columnas requeridas.
+
+        Previene KeyError al acceder a columnas en row['columna'].
+        """
+        # Columnas requeridas en OHLCV
+        columnas_ohlcv_requeridas = ['timestamp', 'pair', 'open', 'high', 'low', 'close', 'volume']
+        columnas_faltantes = [col for col in columnas_ohlcv_requeridas if col not in self.df_ohlcv.columns]
+
+        if columnas_faltantes:
+            raise ValueError(
+                f"OHLCV DataFrame falta columnas requeridas: {columnas_faltantes}\n"
+                f"Columnas presentes: {list(self.df_ohlcv.columns)}"
+            )
+
+        # Columnas requeridas en spreads
+        columnas_spreads_requeridas = ['pair', 'hour_utc', 'day_of_week', 'spread_pips']
+        columnas_faltantes = [col for col in columnas_spreads_requeridas if col not in self.df_spreads.columns]
+
+        if columnas_faltantes:
+            raise ValueError(
+                f"Spreads DataFrame falta columnas requeridas: {columnas_faltantes}\n"
+                f"Columnas presentes: {list(self.df_spreads.columns)}"
+            )
+
+        if self.verbose:
+            print("  ✓ Validación de columnas: PASADA")
+
+    def _validar_configuracion(self):
+        """
+        CRÍTICO: Valida que la configuración tenga todas las claves requeridas.
+
+        Previene KeyError al acceder a self.config['clave'].
+        """
+        claves_requeridas = [
+            'risk_per_trade',
+            'max_position_size',
+            'stop_loss_atr_mult',
+            'take_profit_atr_mult',
+            'timeout_bars',
+            'base_slippage_pips',
+            'max_spread_pips',
+            'avoid_rollover_hours'
+        ]
+
+        claves_faltantes = [clave for clave in claves_requeridas if clave not in self.config]
+
+        if claves_faltantes:
+            raise ValueError(
+                f"Configuración falta claves requeridas: {claves_faltantes}\n"
+                f"Claves presentes: {list(self.config.keys())}"
+            )
+
+        # Validar valores
+        if not (0 < self.config['risk_per_trade'] <= 0.1):
+            raise ValueError(f"risk_per_trade debe estar entre 0 y 0.1, recibido: {self.config['risk_per_trade']}")
+
+        if not (0 < self.config['max_position_size'] <= 1.0):
+            raise ValueError(f"max_position_size debe estar entre 0 y 1.0, recibido: {self.config['max_position_size']}")
+
+        if self.verbose:
+            print("  ✓ Validación de configuración: PASADA")
+
     def cargar_datos(
         self,
         ruta_ohlcv: str,
@@ -142,6 +206,11 @@ class MotorBacktestCompleto:
 
         # Cargar spreads
         self.df_spreads = pd.read_csv(ruta_spreads)
+
+        # CRÍTICO: Validar columnas requeridas
+        self._validar_columnas_requeridas()
+        self._validar_configuracion()
+
         self._construir_spreads_lookup()
 
         if self.verbose:
