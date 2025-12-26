@@ -222,11 +222,19 @@ class MetodosFisica:
         X = serie_clean[:-1]
         dX = np.diff(serie_clean)
 
-        # Regresión lineal
+        # CRÍTICO #4 CORREGIDO: Split temporal para evitar data leakage
+        # Estimar parámetros en primera mitad, validar en segunda mitad
+        split_idx = len(X) // 2
+        X_train = X[:split_idx]
+        dX_train = dX[:split_idx]
+        X_test = X[split_idx:]
+        dX_test = dX[split_idx:]
+
+        # Regresión lineal en train set
         from sklearn.linear_model import LinearRegression
 
         modelo = LinearRegression()
-        modelo.fit(X.reshape(-1, 1), dX)
+        modelo.fit(X_train.reshape(-1, 1), dX_train)
 
         a = modelo.intercept_
         b = modelo.coef_[0]
@@ -235,9 +243,9 @@ class MetodosFisica:
         theta = -b / dt
         mu = -a / b if b != 0 else np.mean(serie_clean)
 
-        # Estimar σ (volatilidad de residuos)
-        residuos = dX - (a + b * X)
-        sigma = np.std(residuos) / np.sqrt(dt)
+        # Estimar σ (volatilidad de residuos en train)
+        residuos_train = dX_train - (a + b * X_train)
+        sigma = np.std(residuos_train) / np.sqrt(dt)
 
         # Half-life (tiempo para revertir a la mitad)
         if theta > 0:
@@ -247,10 +255,30 @@ class MetodosFisica:
 
         # Test estadístico: ¿es θ significativamente > 0?
         # t-statistic para b (que es -θ*dt)
-        n = len(X)
-        se_b = np.std(residuos) / (np.std(X) * np.sqrt(n))
-        t_stat = b / se_b
-        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df=n-2))
+        n_train = len(X_train)
+
+        # ALTO #1 CORREGIDO: Validar std antes de división por cero
+        std_X_train = np.std(X_train)
+        std_residuos = np.std(residuos_train)
+
+        if std_X_train > 1e-10 and std_residuos > 0:
+            se_b = std_residuos / (std_X_train * np.sqrt(n_train))
+
+            # ALTO #2 CORREGIDO: Validar se_b antes de división
+            if se_b > 1e-10:
+                t_stat = b / se_b
+                p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df=n_train-2))
+            else:
+                t_stat = 0.0
+                p_value = 1.0
+        else:
+            # Serie constante o sin variación - no hay mean reversion
+            t_stat = 0.0
+            p_value = 1.0
+
+        # R² en train y test para validar estabilidad de parámetros
+        r2_train = modelo.score(X_train.reshape(-1, 1), dX_train)
+        r2_test = modelo.score(X_test.reshape(-1, 1), dX_test)
 
         resultados = {
             'theta': theta,
@@ -260,7 +288,9 @@ class MetodosFisica:
             't_statistic': t_stat,
             'p_value': p_value,
             'mean_reversion': theta > 0 and p_value < 0.05,
-            'r_squared': modelo.score(X.reshape(-1, 1), dX)
+            'r_squared': r2_test,  # Reportar R² de test
+            'r_squared_train': r2_train,
+            'r_squared_test': r2_test
         }
 
         logger.info(f"Parámetros estimados:")
@@ -270,7 +300,8 @@ class MetodosFisica:
         logger.info(f"  Half-life:               {half_life:.2f} períodos")
         logger.info(f"  t-statistic:             {t_stat:.4f}")
         logger.info(f"  p-value:                 {p_value:.6f}")
-        logger.info(f"  R²:                      {resultados['r_squared']:.6f}")
+        logger.info(f"  R² Train:                {r2_train:.6f}")
+        logger.info(f"  R² Test:                 {r2_test:.6f}")
 
         if resultados['mean_reversion']:
             logger.info(f"✓ Mean reversion detectado (θ > 0, p < 0.05)")

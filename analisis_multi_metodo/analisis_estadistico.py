@@ -324,19 +324,34 @@ class AnalizadorEstadistico:
 
         logger.info(f"Observaciones válidas: {len(X_clean):,}")
 
-        # Normalizar features
+        # CRÍTICO #5 CORREGIDO: Train/test split temporal para evitar data leakage
+        # Split temporal (80/20) - NO shuffle para series temporales
+        split_idx = int(len(X_clean) * 0.8)
+        X_train = X_clean[:split_idx]
+        X_test = X_clean[split_idx:]
+        y_train = y_clean[:split_idx]
+        y_test = y_clean[split_idx:]
+
+        logger.info(f"Train: {len(X_train):,} | Test: {len(X_test):,}")
+
+        # Normalizar features (fit en train, transform en test)
         scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_clean)
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
 
         # Regresión
         modelo = LinearRegression()
-        modelo.fit(X_scaled, y_clean)
+        modelo.fit(X_train_scaled, y_train)
 
-        # Métricas
-        r2 = modelo.score(X_scaled, y_clean)
-        y_pred = modelo.predict(X_scaled)
-        mse = np.mean((y_clean - y_pred)**2)
-        mae = np.mean(np.abs(y_clean - y_pred))
+        # Métricas en TRAIN y TEST (no en mismo dataset)
+        r2_train = modelo.score(X_train_scaled, y_train)
+        r2_test = modelo.score(X_test_scaled, y_test)
+        y_pred_test = modelo.predict(X_test_scaled)
+        mse = np.mean((y_test - y_pred_test)**2)
+        mae = np.mean(np.abs(y_test - y_pred_test))
+
+        # Para compatibilidad, reportar r2_test como métrica principal
+        r2 = r2_test
 
         # Coeficientes
         coefs = pd.DataFrame({
@@ -347,6 +362,8 @@ class AnalizadorEstadistico:
 
         resultados = {
             'R2': r2,
+            'R2_train': r2_train,
+            'R2_test': r2_test,
             'MSE': mse,
             'MAE': mae,
             'intercept': modelo.intercept_,
@@ -357,9 +374,10 @@ class AnalizadorEstadistico:
 
         self.regression_results = resultados
 
-        logger.info(f"R² = {r2:.6f}")
-        logger.info(f"MSE = {mse:.6f}")
-        logger.info(f"MAE = {mae:.6f}")
+        logger.info(f"R² Train = {r2_train:.6f}")
+        logger.info(f"R² Test  = {r2_test:.6f}")
+        logger.info(f"MSE Test = {mse:.6f}")
+        logger.info(f"MAE Test = {mae:.6f}")
         logger.info(f"Top 5 coeficientes:")
         logger.info(f"\n{coefs.head().to_string(index=False)}")
 
@@ -386,18 +404,32 @@ class AnalizadorEstadistico:
         X_clean = self.X[mask]
         y_clean = self.y[mask]
 
+        # CRÍTICO #6 CORREGIDO: Train/test split temporal para evitar data leakage
+        split_idx = int(len(X_clean) * 0.8)
+        X_train = X_clean[:split_idx]
+        X_test = X_clean[split_idx:]
+        y_train = y_clean[:split_idx]
+        y_test = y_clean[split_idx:]
+
+        logger.info(f"Train: {len(X_train):,} | Test: {len(X_test):,}")
+
         # Normalizar
         scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_clean)
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
 
         # Ridge
         modelo = Ridge(alpha=alpha)
-        modelo.fit(X_scaled, y_clean)
+        modelo.fit(X_train_scaled, y_train)
 
-        # Métricas
-        r2 = modelo.score(X_scaled, y_clean)
-        y_pred = modelo.predict(X_scaled)
-        mse = np.mean((y_clean - y_pred)**2)
+        # Métricas en TRAIN y TEST
+        r2_train = modelo.score(X_train_scaled, y_train)
+        r2_test = modelo.score(X_test_scaled, y_test)
+        y_pred_test = modelo.predict(X_test_scaled)
+        mse = np.mean((y_test - y_pred_test)**2)
+
+        # Para compatibilidad
+        r2 = r2_test
 
         # Coeficientes
         coefs = pd.DataFrame({
@@ -408,6 +440,8 @@ class AnalizadorEstadistico:
 
         resultados = {
             'R2': r2,
+            'R2_train': r2_train,
+            'R2_test': r2_test,
             'MSE': mse,
             'alpha': alpha,
             'coeficientes': coefs,
@@ -418,8 +452,9 @@ class AnalizadorEstadistico:
         self.ridge_results = resultados
 
         logger.info(f"Alpha (λ) = {alpha}")
-        logger.info(f"R² = {r2:.6f}")
-        logger.info(f"MSE = {mse:.6f}")
+        logger.info(f"R² Train = {r2_train:.6f}")
+        logger.info(f"R² Test  = {r2_test:.6f}")
+        logger.info(f"MSE Test = {mse:.6f}")
 
         return resultados
 
@@ -447,26 +482,40 @@ class AnalizadorEstadistico:
         X_clean = self.X[mask]
         y_clean = self.y[mask]
 
+        # CRÍTICO #7 CORREGIDO: Train/test split temporal para evitar data leakage
+        split_idx = int(len(X_clean) * 0.8)
+        X_train = X_clean[:split_idx]
+        X_test = X_clean[split_idx:]
+        y_train = y_clean[:split_idx]
+        y_test = y_clean[split_idx:]
+
+        logger.info(f"Train: {len(X_train):,} | Test: {len(X_test):,}")
+
         # Normalizar
         scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X_clean)
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_test_scaled = scaler.transform(X_test)
 
-        # Lasso con CV si alpha no especificado
+        # Lasso con CV si alpha no especificado (CV SOLO en train set)
         if alpha is None:
-            logger.info(f"Buscando alpha óptimo con {cv}-fold CV...")
+            logger.info(f"Buscando alpha óptimo con {cv}-fold CV en train set...")
             modelo = LassoCV(cv=cv, random_state=42, max_iter=10000)
-            modelo.fit(X_scaled, y_clean)
+            modelo.fit(X_train_scaled, y_train)
             alpha_optimo = modelo.alpha_
             logger.info(f"Alpha óptimo encontrado: {alpha_optimo:.6f}")
         else:
             modelo = Lasso(alpha=alpha, max_iter=10000)
-            modelo.fit(X_scaled, y_clean)
+            modelo.fit(X_train_scaled, y_train)
             alpha_optimo = alpha
 
-        # Métricas
-        r2 = modelo.score(X_scaled, y_clean)
-        y_pred = modelo.predict(X_scaled)
-        mse = np.mean((y_clean - y_pred)**2)
+        # Métricas en TRAIN y TEST
+        r2_train = modelo.score(X_train_scaled, y_train)
+        r2_test = modelo.score(X_test_scaled, y_test)
+        y_pred_test = modelo.predict(X_test_scaled)
+        mse = np.mean((y_test - y_pred_test)**2)
+
+        # Para compatibilidad
+        r2 = r2_test
 
         # Coeficientes
         coefs = pd.DataFrame({
@@ -480,6 +529,8 @@ class AnalizadorEstadistico:
 
         resultados = {
             'R2': r2,
+            'R2_train': r2_train,
+            'R2_test': r2_test,
             'MSE': mse,
             'alpha': alpha_optimo,
             'n_features_seleccionados': n_seleccionados,
@@ -492,8 +543,9 @@ class AnalizadorEstadistico:
         self.lasso_results = resultados
 
         logger.info(f"Alpha (λ) = {alpha_optimo:.6f}")
-        logger.info(f"R² = {r2:.6f}")
-        logger.info(f"MSE = {mse:.6f}")
+        logger.info(f"R² Train = {r2_train:.6f}")
+        logger.info(f"R² Test  = {r2_test:.6f}")
+        logger.info(f"MSE Test = {mse:.6f}")
         logger.info(f"Features seleccionados: {n_seleccionados}/{self.n_features}")
         logger.info(f"Tasa de selección: {n_seleccionados/self.n_features*100:.1f}%")
 
