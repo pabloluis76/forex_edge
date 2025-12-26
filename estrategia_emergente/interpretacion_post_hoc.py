@@ -525,7 +525,13 @@ class InterpretacionPostHoc:
             # Pesos proporcionales a |IC|
             ics = df_interpretado['IC'].abs()
             suma_ics = ics.sum()
-            pesos_calculados = (ics / suma_ics).values
+
+            # CRÍTICO #3 CORREGIDO: Validar suma_ics antes de división por cero
+            if suma_ics == 0 or np.isnan(suma_ics):
+                # Si todos los ICs son 0, distribuir peso uniforme
+                pesos_calculados = np.ones(len(df_interpretado)) / len(df_interpretado)
+            else:
+                pesos_calculados = (ics / suma_ics).values
         else:
             # Usar pesos personalizados
             pesos_calculados = [
@@ -535,7 +541,14 @@ class InterpretacionPostHoc:
 
         # Normalizar pesos
         pesos_calculados = np.array(pesos_calculados)
-        pesos_calculados = pesos_calculados / pesos_calculados.sum()
+        suma_pesos = pesos_calculados.sum()
+
+        # CRÍTICO #4 CORREGIDO: Validar suma_pesos antes de división por cero
+        if suma_pesos == 0 or np.isnan(suma_pesos):
+            # Si suma es 0, distribuir peso uniforme
+            pesos_calculados = np.ones(len(pesos_calculados)) / len(pesos_calculados)
+        else:
+            pesos_calculados = pesos_calculados / suma_pesos
 
         # Crear DataFrame de estrategia
         df_estrategia = df_interpretado.copy()

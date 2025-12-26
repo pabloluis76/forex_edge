@@ -428,8 +428,16 @@ class FormulacionReglas:
                     señal_short += peso
 
         # Determinar decisión
-        umbral_long = sum(r['peso'] for r in self.reglas_long) / 2
-        umbral_short = sum(r['peso'] for r in self.reglas_short) / 2
+        # CRÍTICO #2 CORREGIDO: Validar que hay reglas antes de división por cero
+        if len(self.reglas_long) == 0:
+            umbral_long = 0.5  # Default si no hay reglas long
+        else:
+            umbral_long = sum(r['peso'] for r in self.reglas_long) / 2
+
+        if len(self.reglas_short) == 0:
+            umbral_short = 0.5  # Default si no hay reglas short
+        else:
+            umbral_short = sum(r['peso'] for r in self.reglas_short) / 2
 
         if señal_long > umbral_long and señal_long > señal_short:
             decision = 'LONG'
@@ -488,8 +496,14 @@ class FormulacionReglas:
         # 2. Ajustar por volatilidad (ATR)
         # A mayor volatilidad, menor tamaño para mantener riesgo constante
         stop_loss_dist = atr * atr_mult
-        risk_amount = capital * risk_per_trade
-        size_atr = (risk_amount / stop_loss_dist) / precio_actual
+
+        # CRÍTICO #1 CORREGIDO: Validar stop_loss_dist antes de división por cero
+        if stop_loss_dist <= 0 or np.isnan(stop_loss_dist):
+            # Si ATR es 0 o inválido, usar tamaño base conservador
+            size_atr = base_size * 0.5
+        else:
+            risk_amount = capital * risk_per_trade
+            size_atr = (risk_amount / stop_loss_dist) / precio_actual
 
         # 3. Ajustar por correlación con posiciones existentes
         # Si alta correlación, reducir tamaño
@@ -746,7 +760,13 @@ class EstrategiaEmergente:
 
         resumen['Componente'].append('Risk/Reward')
         resumen['Descripción'].append('Ratio riesgo/beneficio')
-        resumen['Valor'].append(f"1:{self.exit_params['take_profit_atr']/self.exit_params['stop_loss_atr']:.1f}")
+
+        # CRÍTICO #5 CORREGIDO: Validar stop_loss_atr antes de división por cero
+        if self.exit_params['stop_loss_atr'] > 0:
+            rr_ratio = self.exit_params['take_profit_atr'] / self.exit_params['stop_loss_atr']
+            resumen['Valor'].append(f"1:{rr_ratio:.1f}")
+        else:
+            resumen['Valor'].append("1:N/A")
 
         resumen['Componente'].append('Timeout')
         resumen['Descripción'].append('Exit por timeout (barras)')
