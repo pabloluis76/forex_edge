@@ -98,8 +98,12 @@ class GeneradorSistematicoFeatures:
 
         logger.info(f"Inicializado para {nombre_par}: {len(df)} velas")
 
-    def _agregar_feature(self, nombre: str, serie: pd.Series):
+    def _agregar_feature(self, nombre: str, serie):
         """Agrega un feature al diccionario si es válido"""
+        # Convertir numpy array a pandas Series si es necesario
+        if isinstance(serie, np.ndarray):
+            serie = pd.Series(serie, index=self.df.index, name=nombre)
+
         # Verificar que no sea todo NaN
         if serie.isna().all():
             return False
