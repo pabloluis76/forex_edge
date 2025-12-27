@@ -42,6 +42,12 @@ import numpy as np
 import pandas as pd
 from typing import Union, Literal, Optional
 import logging
+from pathlib import Path
+import sys
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent.parent))
+from constants import EPSILON_NORMALIZATION
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,7 +68,7 @@ class NormalizadorPointInTime:
     def zscore_rolling(x: Union[pd.Series, np.ndarray],
                       window: int = 252,
                       min_periods: Optional[int] = None,
-                      epsilon: float = 1e-8) -> np.ndarray:
+                      epsilon: float = None) -> np.ndarray:
         """
         Z-Score Rolling SIN look-ahead bias.
 
@@ -86,6 +92,9 @@ class NormalizadorPointInTime:
             >>> # z[0], z[1], z[2] = NaN (no hay suficiente historia)
             >>> # z[3] = (103 - mean([100,102,101])) / std([100,102,101])
         """
+        if epsilon is None:
+            epsilon = EPSILON_NORMALIZATION
+
         if isinstance(x, pd.Series):
             x_series = x
         else:
@@ -107,7 +116,7 @@ class NormalizadorPointInTime:
     @staticmethod
     def zscore_expanding(x: Union[pd.Series, np.ndarray],
                         min_periods: int = 30,
-                        epsilon: float = 1e-8) -> np.ndarray:
+                        epsilon: float = None) -> np.ndarray:
         """
         Z-Score Expanding (ventana que crece) SIN look-ahead bias.
 
@@ -162,6 +171,9 @@ class NormalizadorPointInTime:
             >>> rank = rank_transform(x, window=3)
             >>> # rank[3] = percentil de 25 en [10, 20, 15] = 1.0 (máximo)
         """
+        if epsilon is None:
+            epsilon = EPSILON_NORMALIZATION
+
         if isinstance(x, pd.Series):
             x_series = x
         else:
@@ -195,7 +207,7 @@ class NormalizadorPointInTime:
     def minmax_rolling(x: Union[pd.Series, np.ndarray],
                       window: int = 252,
                       min_periods: Optional[int] = None,
-                      epsilon: float = 1e-8) -> np.ndarray:
+                      epsilon: float = None) -> np.ndarray:
         """
         Min-Max Scaling Rolling SIN look-ahead bias.
 
@@ -215,6 +227,9 @@ class NormalizadorPointInTime:
         Returns:
             Array escalado [0, 1] aproximadamente
         """
+        if epsilon is None:
+            epsilon = EPSILON_NORMALIZATION
+
         if isinstance(x, pd.Series):
             x_series = x
         else:

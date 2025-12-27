@@ -29,6 +29,9 @@ warnings.filterwarnings('ignore')
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Importar constantes centralizadas
+from constants import EPSILON
+
 from generacion_de_transformaciones import (
     Delta, R, r, mu, sigma, Max, Min, Z, Pos, Rank,
     D1, D2, EMA
@@ -103,7 +106,7 @@ class GeneradorSistematicoFeatures:
 
         # Verificar que tenga varianza
         # CRÍTICO #9 CORREGIDO: Usar tolerancia epsilon para comparación de floats
-        if np.isclose(serie.std(), 0, atol=1e-10):
+        if np.isclose(serie.std(), 0, atol=EPSILON):
             return False
 
         # Verificar valores infinitos
@@ -359,7 +362,7 @@ class GeneradorSistematicoFeatures:
                 # Ratio de volatilidades
                 vol_m = sigma(serie, m)
                 vol_n = sigma(serie, n)
-                vol_ratio = vol_m / (vol_n + 1e-10)
+                vol_ratio = vol_m / (vol_n + EPSILON)
                 self._agregar_feature(f"sigma_{m}_sigma_{n}_ratio", vol_ratio)
 
                 # EMA ratio

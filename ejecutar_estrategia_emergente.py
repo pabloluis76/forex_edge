@@ -78,14 +78,14 @@ class EjecutorEstrategiaEmergente:
         features_validados_dir: Path,
         analisis_ic_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         pares: Optional[List[str]] = None,
         limpiar_archivos_viejos: bool = True,
         hacer_backup: bool = False,
         verbose: bool = True
     ):
         """
-        Inicializa el ejecutor de Estrategia Emergente.
+        Inicializa el ejecutor de Estrategia Emergente MULTI-TIMEFRAME.
 
         Parameters:
         -----------
@@ -95,8 +95,8 @@ class EjecutorEstrategiaEmergente:
             Directorio con análisis IC (analisis_multimetodo/)
         output_dir : Path
             Directorio para guardar estrategias emergentes
-        timeframe : str
-            Timeframe a procesar
+        timeframes : list
+            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
         pares : List[str], optional
             Lista de pares a procesar. Si None, procesa todos los disponibles
         limpiar_archivos_viejos : bool
@@ -109,7 +109,7 @@ class EjecutorEstrategiaEmergente:
         self.features_validados_dir = Path(features_validados_dir)
         self.analisis_ic_dir = Path(analisis_ic_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.verbose = verbose
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
@@ -760,19 +760,19 @@ def main():
     # Directorio de salida
     OUTPUT_DIR = DATOS_DIR / 'estrategia_emergente'
 
-    # Parámetros
-    TIMEFRAME = 'M15'
+    # Parámetros MULTI-TIMEFRAME
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
     PARES = ['EUR_USD', 'GBP_USD', 'USD_JPY', 'EUR_JPY', 'GBP_JPY', 'AUD_USD']  # Lista de pares a procesar (None = auto-detectar)
 
-    # Crear ejecutor
+    # Crear ejecutor MULTI-TIMEFRAME
     ejecutor = EjecutorEstrategiaEmergente(
         features_validados_dir=FEATURES_VALIDADOS_DIR,
         analisis_ic_dir=ANALISIS_IC_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         pares=PARES,
         limpiar_archivos_viejos=True,  # Limpiar archivos viejos
-        hacer_backup=True,              # Hacer backup antes de limpiar
+        hacer_backup=False,             # NO hacer backup (ahorra espacio)
         verbose=True                    # Imprimir progreso detallado
     )
 

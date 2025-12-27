@@ -223,7 +223,7 @@ class AnalisisRobustez:
             # 2. Todos los ICs tienen el mismo signo
             # 3. Rango estrecho
 
-            cv = abs(ic_std / ic_mean) if ic_mean != 0 else np.inf  # Coef. variación
+            cv = abs(ic_std / ic_mean) if ic_mean != 0 else np.nan  # Coef. variación
             mismo_signo = all(df_sensibilidad['IC'] > 0) or all(df_sensibilidad['IC'] < 0)
 
             if cv < 0.20 and mismo_signo:

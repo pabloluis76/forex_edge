@@ -38,6 +38,7 @@ warnings.filterwarnings('ignore')
 # Importar módulos del sistema
 sys.path.append(str(Path(__file__).parent.parent))
 
+from constants import EPSILON
 from analisis_multi_metodo.analisis_estadistico import AnalizadorEstadistico
 from analisis_multi_metodo.machine_learning import AnalizadorML
 from analisis_multi_metodo.deep_learning import ModelosDeepLearning
@@ -548,7 +549,7 @@ class WalkForwardValidation:
 
         # Sharpe Ratio
         # CRÍTICO #4 CORREGIDO: Usar np.isclose para evitar problemas con floats muy pequeños
-        sharpe = (ret_anual / vol) if not np.isclose(vol, 0, atol=1e-10) else 0.0
+        sharpe = (ret_anual / vol) if not np.isclose(vol, 0, atol=EPSILON) else 0.0
 
         # Max Drawdown
         cumret = (1 + retornos_estrategia).cumprod()

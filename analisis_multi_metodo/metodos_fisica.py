@@ -158,8 +158,14 @@ from scipy.optimize import minimize
 from scipy.spatial.distance import pdist, squareform
 import logging
 import warnings
+from pathlib import Path
+import sys
 
 warnings.filterwarnings('ignore')
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
 
 # Librerías opcionales
 try:
@@ -261,11 +267,11 @@ class MetodosFisica:
         std_X_train = np.std(X_train)
         std_residuos = np.std(residuos_train)
 
-        if std_X_train > 1e-10 and std_residuos > 0:
+        if std_X_train > EPSILON and std_residuos > 0:
             se_b = std_residuos / (std_X_train * np.sqrt(n_train))
 
             # ALTO #2 CORREGIDO: Validar se_b antes de división
-            if se_b > 1e-10:
+            if se_b > EPSILON:
                 t_stat = b / se_b
                 p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df=n_train-2))
             else:

@@ -26,7 +26,12 @@ import pandas as pd
 from typing import Dict, List, Tuple, Callable, Optional
 from pathlib import Path
 import warnings
+import sys
 warnings.filterwarnings('ignore')
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
 
 
 class PermutationTest:
@@ -339,7 +344,7 @@ class PermutationTest:
 
         # Z-score: cuántas desviaciones estándar está el real de la media aleatoria
         # Usar umbral pequeño para evitar np.inf
-        if std_permuted > 1e-10:
+        if std_permuted > EPSILON:
             z_score = (valor_real - media_permuted) / std_permuted
         else:
             # Si std es muy pequeño, todas las permutaciones son iguales

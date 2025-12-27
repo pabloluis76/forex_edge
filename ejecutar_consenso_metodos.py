@@ -82,6 +82,7 @@ def convert_numpy_types(obj):
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from constants import EPSILON
 from consenso_metodos.tabla_consenso import TablaConsenso
 from consenso_metodos.proceso_consenso import ProcesoConsenso
 
@@ -144,19 +145,19 @@ class EjecutorConsensoMetodos:
         self,
         features_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         horizonte_prediccion: int = 1,
         top_n_por_metodo: int = 100,
         limpiar_archivos_viejos: bool = True,
         hacer_backup: bool = False
     ):
         """
-        Inicializa el ejecutor.
+        Inicializa el ejecutor MULTI-TIMEFRAME.
 
         Args:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar resultados
-            timeframe: Timeframe procesado (default: 'M15')
+            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D1'])
             horizonte_prediccion: Períodos adelante para calcular retorno
             top_n_por_metodo: Número de top features por método (default: 100)
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
@@ -164,7 +165,7 @@ class EjecutorConsensoMetodos:
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.horizonte_prediccion = horizonte_prediccion
         self.top_n_por_metodo = top_n_por_metodo
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
@@ -371,7 +372,7 @@ class EjecutorConsensoMetodos:
 
         for i, nombre in enumerate(nombres_features):
             col = X[:, i]
-            if not np.all(np.isnan(col)) and np.nanstd(col) > 1e-10:
+            if not np.all(np.isnan(col)) and np.nanstd(col) > EPSILON:
                 valid_features.append(nombre)
                 valid_indices.append(i)
 
@@ -1096,12 +1097,14 @@ class EjecutorConsensoMetodos:
 
 
 def main():
-    """Función principal."""
+    """Función principal - MULTI-TIMEFRAME."""
     # Configuración
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'consenso_metodos'
-    TIMEFRAME = 'M15'
+
+    # MULTI-TIMEFRAME: Consenso para todos los timeframes
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
 
     # Opciones de consenso
     HORIZONTE_PREDICCION = 1    # Predecir retorno 1 período adelante
@@ -1109,7 +1112,7 @@ def main():
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
-    HACER_BACKUP = True              # True = Crea backup antes de borrar
+    HACER_BACKUP = False             # False = NO crea backup (ahorra espacio)
 
     # Validar que existe el directorio de features
     if not FEATURES_DIR.exists():
@@ -1117,11 +1120,11 @@ def main():
         logger.error("Ejecuta primero: python ejecutar_generacion_transformaciones.py")
         return
 
-    # Ejecutar consenso
+    # Ejecutar consenso MULTI-TIMEFRAME
     ejecutor = EjecutorConsensoMetodos(
         features_dir=FEATURES_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         horizonte_prediccion=HORIZONTE_PREDICCION,
         top_n_por_metodo=TOP_N_POR_METODO,
         limpiar_archivos_viejos=LIMPIAR_ARCHIVOS_VIEJOS,

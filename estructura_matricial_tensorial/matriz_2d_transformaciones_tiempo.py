@@ -46,6 +46,10 @@ import numpy as np
 from typing import Tuple, Optional, Dict
 import logging
 
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -156,7 +160,7 @@ class MatrizTransformacionesTiempo:
             # y_t = ln(P_{t+h} / P_t) con protección
             ratio = precios / precios.shift(horizonte)
             # Clip para evitar log de valores <= 0
-            ratio = ratio.clip(lower=1e-10)
+            ratio = ratio.clip(lower=EPSILON)
             self.y = np.log(ratio).shift(-horizonte)
         elif tipo == 'direccion':
             # y_t = sign(P_{t+h} - P_t)
@@ -348,6 +352,196 @@ def cargar_desde_csv(filepath: Path) -> MatrizTransformacionesTiempo:
     logger.info(f"  Tamaño en memoria: {df.memory_usage(deep=True).sum() / 1024**2:.1f} MB")
 
     return MatrizTransformacionesTiempo(df)
+
+
+class MatrizMultiTimeframe:
+    """
+    Gestor de matrices 2D para MÚLTIPLES TIMEFRAMES.
+
+    Maneja un conjunto de matrices (M15, H1, H4, D1) para un par,
+    permitiendo análisis cross-timeframe y construcción de tensores 3D.
+
+    ESTRUCTURA:
+    {
+        'M15': MatrizTransformacionesTiempo,
+        'H1': MatrizTransformacionesTiempo,
+        'H4': MatrizTransformacionesTiempo,
+        'D1': MatrizTransformacionesTiempo
+    }
+    """
+
+    def __init__(self, par: str):
+        """
+        Inicializa gestor multi-timeframe.
+
+        Args:
+            par: Nombre del par (ej: 'EUR_USD')
+        """
+        self.par = par
+        self.matrices = {}  # {timeframe: MatrizTransformacionesTiempo}
+        self.timeframes_cargados = []
+
+        logger.info(f"Gestor Multi-Timeframe inicializado para: {par}")
+
+    def cargar_timeframe(
+        self,
+        timeframe: str,
+        features_path: Path
+    ) -> bool:
+        """
+        Carga features de un timeframe específico.
+
+        Args:
+            timeframe: Timeframe a cargar (ej: 'M15', 'H1', etc.)
+            features_path: Path al archivo de features (parquet o csv)
+
+        Returns:
+            True si cargó exitosamente
+        """
+        try:
+            # Cargar features
+            if features_path.suffix == '.parquet':
+                df = pd.read_parquet(features_path)
+            elif features_path.suffix == '.csv':
+                df = pd.read_csv(features_path, index_col=0, parse_dates=True)
+            else:
+                raise ValueError(f"Formato no soportado: {features_path.suffix}")
+
+            # Crear matriz
+            matriz = MatrizTransformacionesTiempo(df)
+            self.matrices[timeframe] = matriz
+            self.timeframes_cargados.append(timeframe)
+
+            logger.info(f"  ✓ {timeframe}: {df.shape[0]:,} timestamps, {df.shape[1]:,} features")
+            return True
+
+        except Exception as e:
+            logger.error(f"  ✗ {timeframe}: Error al cargar - {e}")
+            return False
+
+    def cargar_desde_directorio(
+        self,
+        features_dir: Path,
+        timeframes: list = None
+    ) -> int:
+        """
+        Carga automáticamente todos los timeframes desde un directorio.
+
+        Args:
+            features_dir: Directorio con archivos de features
+            timeframes: Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D1'])
+
+        Returns:
+            Número de timeframes cargados exitosamente
+        """
+        if timeframes is None:
+            timeframes = ['M15', 'H1', 'H4', 'D1']
+
+        logger.info(f"\nCargando timeframes para {self.par}:")
+
+        exitosos = 0
+        for tf in timeframes:
+            # Intentar .parquet primero, luego .csv
+            path_parquet = features_dir / f"{self.par}_{tf}_features.parquet"
+            path_csv = features_dir / f"{self.par}_{tf}_features.csv"
+
+            if path_parquet.exists():
+                if self.cargar_timeframe(tf, path_parquet):
+                    exitosos += 1
+            elif path_csv.exists():
+                if self.cargar_timeframe(tf, path_csv):
+                    exitosos += 1
+            else:
+                logger.warning(f"  ⚠️  {tf}: Archivo no encontrado")
+
+        logger.info(f"\n✓ {exitosos}/{len(timeframes)} timeframes cargados")
+        return exitosos
+
+    def construir_tensor_3d(self, timeframe_base: str = 'M15') -> Optional[np.ndarray]:
+        """
+        Construye tensor 3D: (tiempo_base, features, timeframes).
+
+        Sincroniza todos los timeframes al timeframe base (ej: M15),
+        creando un tensor donde cada slice temporal tiene features de
+        todos los TF disponibles en ese momento.
+
+        Args:
+            timeframe_base: TF base para sincronización (default: 'M15')
+
+        Returns:
+            Tensor numpy de shape (n_timestamps, n_features_max, n_timeframes)
+            o None si no hay suficientes TF cargados
+        """
+        if len(self.matrices) < 2:
+            logger.warning("Se necesitan al menos 2 timeframes para tensor 3D")
+            return None
+
+        if timeframe_base not in self.matrices:
+            logger.error(f"Timeframe base {timeframe_base} no cargado")
+            return None
+
+        logger.info(f"\nConstruyendo tensor 3D (base: {timeframe_base})...")
+
+        # TODO: Implementar sincronización cross-timeframe
+        # Por ahora retorna None, requiere sincronización compleja
+        logger.warning("Construcción de tensor 3D en desarrollo")
+        return None
+
+    def obtener_estadisticas_cross_tf(self) -> Dict:
+        """
+        Obtiene estadísticas comparativas entre timeframes.
+
+        Returns:
+            Dict con estadísticas por timeframe
+        """
+        stats = {}
+
+        for tf, matriz in self.matrices.items():
+            X = matriz.construir_matriz(dropna=True)
+
+            stats[tf] = {
+                'n_observaciones': X.shape[0],
+                'n_features': X.shape[1],
+                'memoria_mb': X.nbytes / 1024**2,
+                'periodo_inicio': str(matriz.timestamps[0]),
+                'periodo_fin': str(matriz.timestamps[-1])
+            }
+
+        return stats
+
+    def mostrar_resumen(self):
+        """
+        Muestra resumen de todos los timeframes cargados.
+        """
+        print("="*80)
+        print(f"RESUMEN MULTI-TIMEFRAME: {self.par}")
+        print("="*80)
+        print(f"\nTimeframes cargados: {len(self.matrices)}")
+        print(f"TFs disponibles: {', '.join(self.timeframes_cargados)}")
+
+        if len(self.matrices) > 0:
+            print("\n" + "─"*80)
+            print(f"{'TF':<6} │ {'Observaciones':>14} │ {'Features':>10} │ {'Memoria MB':>11} │ {'Período':<30}")
+            print("─"*80)
+
+            stats = self.obtener_estadisticas_cross_tf()
+            for tf in sorted(self.timeframes_cargados):
+                s = stats[tf]
+                periodo = f"{s['periodo_inicio'][:10]} → {s['periodo_fin'][:10]}"
+                print(
+                    f"{tf:<6} │ {s['n_observaciones']:>14,} │ {s['n_features']:>10,} │ "
+                    f"{s['memoria_mb']:>11.1f} │ {periodo:<30}"
+                )
+
+            print("─"*80)
+
+            # Totales
+            total_obs = sum(s['n_observaciones'] for s in stats.values())
+            total_features = sum(s['n_features'] for s in stats.values())
+            total_mem = sum(s['memoria_mb'] for s in stats.values())
+
+            print(f"{'TOTAL':<6} │ {total_obs:>14,} │ {total_features:>10,} │ {total_mem:>11.1f} │")
+            print("="*80)
 
 
 def ejemplo_uso():

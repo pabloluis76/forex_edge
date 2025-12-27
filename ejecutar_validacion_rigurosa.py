@@ -154,7 +154,7 @@ class EjecutorValidacionRigurosa:
         features_dir: Path,
         consenso_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         horizonte_prediccion: int = 1,
         train_years: int = 2,
         test_months: int = 6,
@@ -164,13 +164,13 @@ class EjecutorValidacionRigurosa:
         hacer_backup: bool = False
     ):
         """
-        Inicializa el ejecutor.
+        Inicializa el ejecutor MULTI-TIMEFRAME.
 
         Args:
             features_dir: Directorio con features generados (.parquet)
             consenso_dir: Directorio con features aprobados por consenso
             output_dir: Directorio para guardar resultados
-            timeframe: Timeframe procesado (default: 'M15')
+            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D1'])
             horizonte_prediccion: Períodos adelante
             train_years: Años para train en walk-forward
             test_months: Meses para test en walk-forward
@@ -182,7 +182,7 @@ class EjecutorValidacionRigurosa:
         self.features_dir = Path(features_dir)
         self.consenso_dir = Path(consenso_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.horizonte_prediccion = horizonte_prediccion
         self.train_years = train_years
         self.test_months = test_months
@@ -1041,13 +1041,15 @@ class EjecutorValidacionRigurosa:
 
 
 def main():
-    """Función principal."""
+    """Función principal - MULTI-TIMEFRAME."""
     # Configuración
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
     CONSENSO_DIR = BASE_DIR / 'datos' / 'consenso_metodos'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'validacion_rigurosa'
-    TIMEFRAME = 'M15'
+
+    # MULTI-TIMEFRAME: Validar todos los timeframes
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
 
     # Opciones de validación
     HORIZONTE_PREDICCION = 1   # Predecir 1 período adelante
@@ -1058,7 +1060,7 @@ def main():
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos
-    HACER_BACKUP = True              # True = Crea backup
+    HACER_BACKUP = False             # False = NO crea backup (ahorra espacio)
 
     # Validar directorios
     if not FEATURES_DIR.exists():
@@ -1069,12 +1071,12 @@ def main():
         logger.warning(f"Directorio de consenso no encontrado: {CONSENSO_DIR}")
         logger.warning("Se usarán todos los features disponibles")
 
-    # Ejecutar validación
+    # Ejecutar validación MULTI-TIMEFRAME
     ejecutor = EjecutorValidacionRigurosa(
         features_dir=FEATURES_DIR,
         consenso_dir=CONSENSO_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         horizonte_prediccion=HORIZONTE_PREDICCION,
         train_years=TRAIN_YEARS,
         test_months=TEST_MONTHS,

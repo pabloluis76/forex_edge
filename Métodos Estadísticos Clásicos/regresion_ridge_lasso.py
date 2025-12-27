@@ -66,6 +66,11 @@ import seaborn as sns
 from scipy.optimize import minimize
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
+import sys
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON, COEF_ZERO_THRESHOLD
 
 
 class RegresionRegularizada:
@@ -288,7 +293,7 @@ class RegresionRegularizada:
         self.coef_ = beta[1:]
 
         # Calcular features seleccionadas (coeficientes no cero)
-        threshold = 1e-10  # Umbral para considerar un coeficiente como cero
+        threshold = COEF_ZERO_THRESHOLD  # Umbral para considerar un coeficiente como cero
         self.n_features_selected_ = np.sum(np.abs(self.coef_) > threshold)
 
         # Calcular importancia de features
@@ -335,7 +340,7 @@ class RegresionRegularizada:
 
         return 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-    def get_selected_features(self, threshold: float = 1e-10) -> List[str]:
+    def get_selected_features(self, threshold: float = None) -> List[str]:
         """
         Obtiene las features seleccionadas (β ≠ 0)
 
@@ -347,6 +352,9 @@ class RegresionRegularizada:
         """
         if self.coef_ is None:
             raise RuntimeError("El modelo debe ser ajustado primero con fit()")
+
+        if threshold is None:
+            threshold = COEF_ZERO_THRESHOLD
 
         selected_idx = np.where(np.abs(self.coef_) > threshold)[0]
         return [self.feature_names_[i] for i in selected_idx]
@@ -404,7 +412,7 @@ class RegresionRegularizada:
             coef = self.coef_[idx]
             importance = self.feature_importance_[idx]
 
-            if abs(coef) > 1e-10:
+            if abs(coef) > COEF_ZERO_THRESHOLD:
                 status = "✓ Seleccionada"
                 if coef > 0:
                     direction = "↑"
@@ -416,7 +424,7 @@ class RegresionRegularizada:
 
             lines.append(f"{name:<25} {coef:>15.6f} {importance:>15.6f} {status:>15}")
 
-            if abs(coef) > 1e-10:
+            if abs(coef) > COEF_ZERO_THRESHOLD:
                 if coef > 0:
                     interpretation = "aumenta retorno"
                 else:
@@ -485,8 +493,8 @@ class RegresionRegularizada:
         sorted_coefs = self.coef_[sorted_idx]
 
         # Colores: verde si seleccionado, rojo si eliminado
-        colors = ['green' if abs(c) > 1e-10 else 'red' for c in sorted_coefs]
-        alphas = [0.8 if abs(c) > 1e-10 else 0.3 for c in sorted_coefs]
+        colors = ['green' if abs(c) > COEF_ZERO_THRESHOLD else 'red' for c in sorted_coefs]
+        alphas = [0.8 if abs(c) > COEF_ZERO_THRESHOLD else 0.3 for c in sorted_coefs]
 
         # Plotear
         y_pos = np.arange(len(sorted_names))
@@ -863,8 +871,8 @@ def ejemplo_comparacion_ridge_lasso():
             sorted_names = [modelo.feature_names_[i] for i in sorted_idx]
             sorted_coefs = modelo.coef_[sorted_idx]
 
-            colors = ['green' if abs(c) > 1e-10 else 'red' for c in sorted_coefs]
-            alphas_plot = [0.8 if abs(c) > 1e-10 else 0.3 for c in sorted_coefs]
+            colors = ['green' if abs(c) > COEF_ZERO_THRESHOLD else 'red' for c in sorted_coefs]
+            alphas_plot = [0.8 if abs(c) > COEF_ZERO_THRESHOLD else 0.3 for c in sorted_coefs]
 
             y_pos = np.arange(len(sorted_names))
             ax.barh(y_pos, sorted_coefs, color=colors, alpha=alphas_plot)

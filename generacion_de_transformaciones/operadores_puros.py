@@ -14,6 +14,12 @@ Fecha: 2025-12-16
 import numpy as np
 import pandas as pd
 from typing import Union, Tuple
+from pathlib import Path
+import sys
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON, MIN_PRICE_FOREX, MAX_PRICE_FOREX
 
 
 class OperadoresPuros:
@@ -93,7 +99,30 @@ class OperadoresPuros:
             >>> r(close, 1)
             [NaN, 0.0953..., -0.0465...]
         """
-        return np.log(x / x.shift(n))
+        # REALISMO MÁXIMO: Validar que precios sean válidos
+        # Precios de forex NUNCA son ≤ 0 - si aparecen, datos corruptos
+        if (x <= 0).any():
+            invalid_count = (x <= 0).sum()
+            invalid_indices = x[x <= 0].index.tolist()[:5]  # Primeros 5
+            raise ValueError(
+                f"DATOS INVÁLIDOS: {invalid_count} precios ≤ 0 detectados. "
+                f"Primeros índices: {invalid_indices}. "
+                f"Los precios de forex deben ser siempre positivos."
+            )
+
+        # Validar rango realista usando constantes globales
+        # Cubre todos los pares: EUR/USD ~1.0, USD/JPY ~150, etc.
+        if (x < MIN_PRICE_FOREX).any() or (x > MAX_PRICE_FOREX).any():
+            out_of_range = x[(x < MIN_PRICE_FOREX) | (x > MAX_PRICE_FOREX)]
+            raise ValueError(
+                f"DATOS FUERA DE RANGO: {len(out_of_range)} precios fuera de [{MIN_PRICE_FOREX}, {MAX_PRICE_FOREX}]. "
+                f"Rango encontrado: [{x.min():.6f}, {x.max():.6f}]"
+            )
+
+        # Cálculo SIN clips artificiales (datos ya validados)
+        ratio = x / x.shift(n)
+        return np.log(ratio)
+        # NaN en primeras n barras es esperado y correcto
 
     @staticmethod
     def mu(x: pd.Series, n: int) -> pd.Series:
@@ -203,7 +232,7 @@ class OperadoresPuros:
         std = x.rolling(window=n, min_periods=n).std()
 
         # CRÍTICO #5 CORREGIDO: Evitar división por cero cuando std=0
-        std_safe = std.replace(0, 1e-10)
+        std_safe = std.replace(0, EPSILON)
         return (x - mean) / std_safe
 
     @staticmethod
@@ -233,7 +262,7 @@ class OperadoresPuros:
 
         # CRÍTICO #6 CORREGIDO: Evitar división por cero cuando max=min (rango=0)
         rango = max_val - min_val
-        rango_safe = rango.replace(0, 1e-10)
+        rango_safe = rango.replace(0, EPSILON)
         return (x - min_val) / rango_safe
 
     @staticmethod

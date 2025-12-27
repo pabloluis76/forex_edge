@@ -17,9 +17,13 @@ from typing import Dict, List, Tuple, Optional, Callable
 import warnings
 warnings.filterwarnings('ignore')
 
+# Importar constantes centralizadas
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
+
 # CONSTANTES PARA DATOS M15
 BARS_PER_YEAR_M15 = 24192
-EPSILON = 1e-10
 
 
 class PruebasRobustez:

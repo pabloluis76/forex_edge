@@ -55,6 +55,8 @@ warnings.filterwarnings('ignore')
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from constants import EPSILON
+
 # Importar módulos estadísticos clásicos
 sys.path.insert(0, str(Path(__file__).parent / "Métodos Estadísticos Clásicos"))
 
@@ -285,7 +287,7 @@ class EjecutorMetodosEstadisticosClasicos:
 
         for i, nombre in enumerate(nombres_features):
             col = X[:, i]
-            if not np.all(np.isnan(col)) and np.nanstd(col) > 1e-10:
+            if not np.all(np.isnan(col)) and np.nanstd(col) > EPSILON:
                 valid_features.append(nombre)
                 valid_indices.append(i)
 
@@ -797,7 +799,7 @@ def main():
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'metodos_estadisticos_clasicos'
-    TIMEFRAME = 'M15'
+    TIMEFRAMES = ["M15", "H1", "H4", "D1"]
 
     # Opciones de análisis
     HORIZONTE_PREDICCION = 1  # Predecir retorno 1 período adelante

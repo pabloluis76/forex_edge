@@ -22,11 +22,15 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
 
+# Importar constantes centralizadas
+import sys
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
+
 # CONSTANTES PARA DATOS M15 (15 minutos)
 # 252 días trading × 24 horas × 4 bars/hora × 0.7 (ajuste fin de semana) = ~24,192
 BARS_PER_YEAR_M15 = 24192
 BARS_PER_DAY_M15 = 96  # 24 horas × 4 bars/hora
-EPSILON = 1e-10  # Para comparaciones de floats
 
 
 class MotorBacktestCompleto:
@@ -296,8 +300,17 @@ class MotorBacktestCompleto:
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             # MEDIO #12: Evitar look-ahead bias - ATR no incluye barra actual
             atr = tr.rolling(window=14).mean().shift(1)
-            # BAJO #16: Forward fill primeros NaN valores
-            atr = atr.fillna(method='bfill').fillna(0.0001)
+
+            # REALISMO MÁXIMO: NO rellenar NaN - mantener como indicador de dato inválido
+            nan_count = atr.isna().sum()
+            if nan_count > 0:
+                if self.verbose:
+                    print(f"  ⚠️  {par}: ATR con {nan_count} NaN ({nan_count/len(atr)*100:.1f}%)")
+                    print(f"           Trades en esas barras serán RECHAZADOS (sin ATR válido)")
+                    print(f"           Primeras ~15 barras típicamente sin ATR (esperado)")
+
+                # NO hacer fillna - mantener NaN
+                # La validación en abrir_posicion() rechazará trades con ATR=NaN
 
             df_trans.loc[mask, 'ATR'] = atr.values
 
@@ -468,7 +481,20 @@ class MotorBacktestCompleto:
         timestamp = row['timestamp']
         par = row['pair']
         close = row['close']
-        atr = row.get('ATR', 0.001)
+        atr = row.get('ATR', None)
+
+        # REALISMO MÁXIMO: Validación estricta de ATR
+        if atr is None or pd.isna(atr) or atr <= 0:
+            # Contador de trades rechazados por ATR inválido
+            if not hasattr(self, 'trades_rechazados_atr'):
+                self.trades_rechazados_atr = 0
+            self.trades_rechazados_atr += 1
+
+            if self.verbose and self.trades_rechazados_atr <= 5:
+                print(f"⚠️  Trade RECHAZADO - ATR inválido ({atr}) en {timestamp}")
+                if self.trades_rechazados_atr == 5:
+                    print(f"    (Ocultando siguientes advertencias ATR...)")
+            return  # NO abrir posición con ATR inválido
 
         # Spread de entrada
         spread_entry = self.get_spread(timestamp, par)
@@ -608,7 +634,8 @@ class MotorBacktestCompleto:
                     posicion=posicion,
                     timestamp=timestamp,
                     precio_cierre=precio_cierre,
-                    razon=razon_cierre
+                    razon=razon_cierre,
+                    atr_current=row.get('ATR', posicion['atr_entry'])
                 )
                 posiciones_cerrar.append(posicion)
 
@@ -625,7 +652,8 @@ class MotorBacktestCompleto:
         posicion: Dict,
         timestamp: pd.Timestamp,
         precio_cierre: float,
-        razon: str
+        razon: str,
+        atr_current: float = None
     ):
         """
         Cierra posición y calcula P&L.
@@ -646,7 +674,8 @@ class MotorBacktestCompleto:
 
         # CRÍTICO #6: Slippage de salida DINÁMICO (no hardcoded)
         # Calcular slippage dinámico basado en ATR actual
-        atr_current = row.get('ATR', posicion['atr_entry'])
+        if atr_current is None:
+            atr_current = posicion['atr_entry']
         atr_avg = posicion['atr_entry']
         slippage_exit = self.calcular_slippage(atr_current, atr_avg)
 
@@ -795,11 +824,14 @@ class MotorBacktestCompleto:
         # Cerrar posiciones abiertas al final
         for pos in self.posiciones_abiertas.copy():
             if pos['pair'] == par:
+                # Intentar obtener ATR de la última fila si existe
+                atr_final = df_par['ATR'].iloc[-1] if 'ATR' in df_par.columns else None
                 self.cerrar_posicion(
                     posicion=pos,
                     timestamp=df_par['timestamp'].iloc[-1],
                     precio_cierre=df_par['close'].iloc[-1],
-                    razon='FIN_BACKTEST'
+                    razon='FIN_BACKTEST',
+                    atr_current=atr_final
                 )
                 self.posiciones_abiertas.remove(pos)
 
@@ -908,6 +940,7 @@ class MotorBacktestCompleto:
 
         metricas = {
             'n_trades': len(df_trades),
+            'n_trades_rechazados_atr': getattr(self, 'trades_rechazados_atr', 0),  # REALISMO MÁXIMO
             'n_wins': int(n_wins),
             'n_loss': int(n_loss),
             'win_rate': win_rate,
@@ -941,10 +974,12 @@ class MotorBacktestCompleto:
         print(f"{'='*80}")
 
         print(f"\nTRADES:")
-        print(f"  Total:          {metricas['n_trades']}")
-        print(f"  Ganadores:      {metricas['n_wins']} ({metricas['win_rate']:.1f}%)")
-        print(f"  Perdedores:     {metricas['n_loss']} ({100-metricas['win_rate']:.1f}%)")
-        print(f"  Profit Factor:  {metricas['profit_factor']:.2f}")
+        print(f"  Total ejecutados:   {metricas['n_trades']}")
+        if metricas.get('n_trades_rechazados_atr', 0) > 0:
+            print(f"  ⚠️  Rechazados (ATR): {metricas['n_trades_rechazados_atr']} (sin ATR válido)")
+        print(f"  Ganadores:          {metricas['n_wins']} ({metricas['win_rate']:.1f}%)")
+        print(f"  Perdedores:         {metricas['n_loss']} ({100-metricas['win_rate']:.1f}%)")
+        print(f"  Profit Factor:      {metricas['profit_factor']:.2f}")
 
         print(f"\nRETORNOS:")
         print(f"  Total:          {metricas['total_return']:+.2f}%")

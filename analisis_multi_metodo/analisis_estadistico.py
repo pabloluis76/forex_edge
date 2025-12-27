@@ -83,8 +83,14 @@ from sklearn.feature_selection import mutual_info_regression
 from statsmodels.stats.multitest import multipletests
 import logging
 import warnings
+from pathlib import Path
+import sys
 
 warnings.filterwarnings('ignore')
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
 
 logging.basicConfig(
     level=logging.INFO,
@@ -291,7 +297,7 @@ class AnalizadorEstadistico:
                 on='Feature',
                 how='left'
             )
-            df['MI/abs_IC_ratio'] = df['MI'] / (df['abs_IC'] + 1e-10)
+            df['MI/abs_IC_ratio'] = df['MI'] / (df['abs_IC'] + EPSILON)
 
         df = df.sort_values('MI', ascending=False)
 

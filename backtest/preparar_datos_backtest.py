@@ -387,6 +387,144 @@ class PreparadorDatosBacktest:
 
         return df_raw_ohlcv
 
+    def preparar_multi_timeframe(
+        self,
+        par: str,
+        timeframes: List[str] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Prepara datos MULTI-TIMEFRAME para un par específico.
+
+        CRÍTICO: Garantiza point-in-time correctness.
+        - H1/H4/D1 solo incluyen barras COMPLETADAS
+        - No hay look-ahead bias
+
+        Parameters:
+        -----------
+        par : str
+            Par a procesar (ej: 'EUR_USD')
+        timeframes : List[str], optional
+            Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D1'])
+        fecha_inicio : str, optional
+            Fecha de inicio (formato: 'YYYY-MM-DD')
+        fecha_fin : str, optional
+            Fecha de fin (formato: 'YYYY-MM-DD')
+
+        Returns:
+        --------
+        df_multi_tf : pd.DataFrame
+            DataFrame con columnas:
+            - timestamp (index)
+            - M15_open, M15_high, M15_low, M15_close, M15_volume
+            - H1_open, H1_high, H1_low, H1_close, H1_volume
+            - H4_open, H4_high, H4_low, H4_close, H4_volume
+            - D1_open, D1_high, D1_low, D1_close, D1_volume
+        """
+        if timeframes is None:
+            timeframes = ['M15', 'H1', 'H4', 'D1']
+
+        if self.verbose:
+            print(f"\n{'='*80}")
+            print(f"PREPARANDO MULTI-TIMEFRAME: {par}")
+            print(f"{'='*80}")
+            print(f"Timeframes: {', '.join(timeframes)}")
+
+        # Cargar cada timeframe
+        datos_tf = {}
+
+        for tf in timeframes:
+            archivo = self.directorio_ohlc / par / f"{tf}.csv"
+
+            if not archivo.exists():
+                if self.verbose:
+                    print(f"  ⚠️  {tf}: Archivo no encontrado, saltando")
+                continue
+
+            try:
+                df = pd.read_csv(archivo, index_col=0, parse_dates=True)
+
+                # Filtrar por fechas
+                if fecha_inicio:
+                    df = df[df.index >= pd.Timestamp(fecha_inicio)]
+                if fecha_fin:
+                    df = df[df.index <= pd.Timestamp(fecha_fin)]
+
+                # Ordenar y eliminar duplicados
+                df = df.sort_index()
+                df = df[~df.index.duplicated(keep='first')]
+
+                datos_tf[tf] = df
+
+                if self.verbose:
+                    print(f"  ✓ {tf}: {len(df):,} barras ({df.index[0]} → {df.index[-1]})")
+
+            except Exception as e:
+                if self.verbose:
+                    print(f"  ✗ {tf}: Error - {e}")
+                continue
+
+        # M15 es el base obligatorio
+        if 'M15' not in datos_tf:
+            raise ValueError(f"No se pudo cargar M15 para {par}")
+
+        # Crear DataFrame base con M15
+        df_m15 = datos_tf['M15']
+        df_result = pd.DataFrame(index=df_m15.index)
+
+        # Agregar columnas M15
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+            df_result[f'M15_{col}'] = df_m15[col]
+
+        # Para cada TF superior, hacer merge_asof (point-in-time safe)
+        for tf in timeframes:
+            if tf == 'M15':
+                continue
+
+            if tf not in datos_tf:
+                if self.verbose:
+                    print(f"  ⚠️  {tf}: No disponible, columnas serán NaN")
+                continue
+
+            df_tf = datos_tf[tf]
+
+            # Renombrar columnas
+            df_tf_renamed = df_tf.rename(columns={
+                'open': f'{tf}_open',
+                'high': f'{tf}_high',
+                'low': f'{tf}_low',
+                'close': f'{tf}_close',
+                'volume': f'{tf}_volume'
+            })
+
+            # CRÍTICO: merge_asof con direction='backward'
+            # Solo usa barras del TF superior que YA EXISTÍAN
+            df_result = pd.merge_asof(
+                df_result,
+                df_tf_renamed,
+                left_index=True,
+                right_index=True,
+                direction='backward',  # Point-in-time safe
+                tolerance=pd.Timedelta(days=7)
+            )
+
+            if self.verbose:
+                col_check = f'{tf}_close'
+                n_valid = df_result[col_check].notna().sum()
+                pct_valid = (n_valid / len(df_result)) * 100
+                print(f"  → {tf}: {n_valid:,}/{len(df_result):,} barras válidas ({pct_valid:.1f}%)")
+
+        # Resetear índice para que timestamp sea columna
+        df_result = df_result.reset_index()
+        df_result.rename(columns={'index': 'timestamp'}, inplace=True)
+
+        if self.verbose:
+            print(f"\n✓ Multi-timeframe preparado: {len(df_result):,} barras")
+            print(f"  Columnas: {len(df_result.columns)}")
+
+        return df_result
+
     def guardar_raw_ohlcv(
         self,
         df_raw_ohlcv: pd.DataFrame,

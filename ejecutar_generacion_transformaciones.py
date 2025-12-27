@@ -53,23 +53,23 @@ class EjecutorGeneracionCompleta:
         self,
         data_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         limpiar_archivos_viejos: bool = True,
         hacer_backup: bool = True
     ):
         """
-        Inicializa el ejecutor.
+        Inicializa el ejecutor MULTI-TIMEFRAME.
 
         Args:
             data_dir: Directorio con datos OHLC
             output_dir: Directorio para guardar features generados
-            timeframe: Timeframe a procesar (default: 'M15')
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
             limpiar_archivos_viejos: Si True, borra archivos .parquet viejos antes de iniciar
             hacer_backup: Si True, hace backup de archivos existentes antes de borrarlos
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
 
@@ -132,18 +132,19 @@ class EjecutorGeneracionCompleta:
 
         logger.info(f"✓ Limpieza completada: {len(archivos_existentes)} archivos eliminados\n")
 
-    def procesar_un_par(self, par: str) -> dict:
+    def procesar_un_par(self, par: str, timeframe: str) -> dict:
         """
-        Procesa un par y retorna estadísticas.
+        Procesa un par en un timeframe específico y retorna estadísticas.
 
         Args:
             par: Nombre del par (ej: 'EUR_USD')
+            timeframe: Timeframe a procesar (ej: 'M15', 'H1', etc.)
 
         Returns:
             Diccionario con estadísticas del procesamiento
         """
         logger.info("\n" + "="*80)
-        logger.info(f"PROCESANDO PAR: {par}")
+        logger.info(f"PROCESANDO: {par} - {timeframe}")
         logger.info("="*80)
 
         inicio = datetime.now()
@@ -151,12 +152,13 @@ class EjecutorGeneracionCompleta:
         try:
             # Directorio y archivo del par
             par_dir = self.data_dir / par
-            file_path = par_dir / f"{self.timeframe}.csv"
+            file_path = par_dir / f"{timeframe}.csv"
 
             if not file_path.exists():
                 logger.error(f"✗ Archivo no encontrado: {file_path}")
                 return {
                     'par': par,
+                    'timeframe': timeframe,
                     'exito': False,
                     'error': 'Archivo no encontrado',
                     'tiempo_segundos': 0
@@ -173,13 +175,13 @@ class EjecutorGeneracionCompleta:
             # Generar transformaciones
             generador = GeneradorSistematicoFeatures(
                 df,
-                nombre_par=f"{par}_{self.timeframe}"
+                nombre_par=f"{par}_{timeframe}"
             )
 
             df_features = generador.generar_todas_las_transformaciones()
 
             # Guardar resultado
-            output_file = self.output_dir / f"{par}_{self.timeframe}_features.parquet"
+            output_file = self.output_dir / f"{par}_{timeframe}_features.parquet"
 
             logger.info(f"\nGuardando features...")
             df_features.to_parquet(output_file, compression='snappy')
@@ -193,7 +195,7 @@ class EjecutorGeneracionCompleta:
             fin = datetime.now()
             tiempo_total = (fin - inicio).total_seconds()
 
-            logger.info(f"\n✓ PAR COMPLETADO: {par}")
+            logger.info(f"\n✓ COMPLETADO: {par} - {timeframe}")
             logger.info(f"  Features generados: {n_features:,}")
             logger.info(f"  Filas: {n_filas:,}")
             logger.info(f"  Tamaño archivo: {tamaño_mb:.1f} MB")
@@ -203,6 +205,7 @@ class EjecutorGeneracionCompleta:
 
             return {
                 'par': par,
+                'timeframe': timeframe,
                 'exito': True,
                 'n_features': n_features,
                 'n_filas': n_filas,
@@ -216,11 +219,12 @@ class EjecutorGeneracionCompleta:
             fin = datetime.now()
             tiempo_total = (fin - inicio).total_seconds()
 
-            logger.error(f"\n✗ ERROR en {par}: {e}")
+            logger.error(f"\n✗ ERROR en {par} - {timeframe}: {e}")
             logger.exception(e)
 
             return {
                 'par': par,
+                'timeframe': timeframe,
                 'exito': False,
                 'error': str(e),
                 'tiempo_segundos': tiempo_total
@@ -228,15 +232,16 @@ class EjecutorGeneracionCompleta:
 
     def ejecutar_todos(self):
         """
-        Ejecuta la generación para todos los pares.
+        Ejecuta la generación MULTI-TIMEFRAME para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
 
         logger.info("\n" + "="*80)
-        logger.info("GENERACIÓN DE TRANSFORMACIONES - TODOS LOS PARES")
+        logger.info("GENERACIÓN DE TRANSFORMACIONES - MULTI-TIMEFRAME")
         logger.info("="*80)
         logger.info(f"Pares a procesar: {len(self.pares)}")
-        logger.info(f"Timeframe: {self.timeframe}")
+        logger.info(f"Timeframes: {', '.join(self.timeframes)}")
+        logger.info(f"Total combinaciones: {len(self.pares) * len(self.timeframes)}")
         logger.info(f"Directorio OHLC: {self.data_dir}")
         logger.info(f"Directorio salida: {self.output_dir}")
         logger.info(f"Limpiar archivos viejos: {'SÍ' if self.limpiar_archivos_viejos else 'NO'}")
@@ -251,12 +256,20 @@ class EjecutorGeneracionCompleta:
             logger.info("="*80)
             self.limpiar_directorio_salida()
 
-        # Procesar cada par
-        for i, par in enumerate(tqdm(self.pares, desc="Procesando pares", unit="par"), 1):
-            logger.info(f"\n[{i}/{len(self.pares)}] Procesando: {par}")
+        # Procesar cada par en cada timeframe
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        contador = 0
 
-            resultado = self.procesar_un_par(par)
-            self.resultados[par] = resultado
+        for par in self.pares:
+            for timeframe in self.timeframes:
+                contador += 1
+                logger.info(f"\n[{contador}/{total_combinaciones}] {par} - {timeframe}")
+
+                resultado = self.procesar_un_par(par, timeframe)
+
+                # Guardar resultado con clave compuesta
+                key = f"{par}_{timeframe}"
+                self.resultados[key] = resultado
 
         self.tiempo_fin = datetime.now()
 
@@ -291,8 +304,10 @@ class EjecutorGeneracionCompleta:
         logger.info(f"{'1. RESUMEN EJECUTIVO':^100}")
         logger.info("─"*100)
 
-        logger.info(f"\n  Timeframe:                     {self.timeframe}")
-        logger.info(f"  Pares Procesados:              {exitosos}/{len(self.pares)}")
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        logger.info(f"\n  Timeframes:                    {', '.join(self.timeframes)}")
+        logger.info(f"  Pares:                         {len(self.pares)}")
+        logger.info(f"  Combinaciones procesadas:      {exitosos}/{total_combinaciones}")
 
         if exitosos > 0:
             features_por_par = [r['n_features'] for r in self.resultados.values() if r['exito']]
@@ -325,32 +340,34 @@ class EjecutorGeneracionCompleta:
         logger.info(f"     Inicio:                     {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"     Fin:                        {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"     Duración Total:             {tiempo_total:.1f}s ({tiempo_total/60:.1f} min)")
-        logger.info(f"     Tiempo Promedio/Par:        {tiempo_total/len(self.pares):.1f}s")
+        logger.info(f"     Tiempo Promedio/Comb:       {tiempo_total/total_combinaciones:.1f}s")
 
         # ============================================================
         # TABLA DE RESULTADOS COMPLETA
         # ============================================================
         logger.info("\n" + "─"*100)
-        logger.info(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        logger.info(f"{'2. RESULTADOS POR PAR Y TIMEFRAME':^100}")
         logger.info("─"*100)
-        logger.info(f"\n{'Par':<10} │ {'✓':<3} │ {'Features':<10} │ {'Filas':<10} │ {'Tamaño MB':<11} │ {'%NaN':<7} │ {'Tiempo s':<10}")
+        logger.info(f"\n{'Par':<10} │ {'TF':<4} │ {'✓':<3} │ {'Features':<10} │ {'Filas':<10} │ {'Tamaño MB':<11} │ {'%NaN':<7} │ {'Tiempo s':<10}")
         logger.info("─" * 100)
 
         for par in self.pares:
-            res = self.resultados[par]
+            for timeframe in self.timeframes:
+                key = f"{par}_{timeframe}"
+                res = self.resultados[key]
 
-            if res['exito']:
-                logger.info(
-                    f"{par:<10} │ {'✓':<3} │ {res['n_features']:>9,} │ "
-                    f"{res['n_filas']:>9,} │ {res['tamaño_mb']:>10.1f} │ "
-                    f"{res['pct_nan']:>6.1f} │ {res['tiempo_segundos']:>9.1f}"
-                )
-            else:
-                logger.info(
-                    f"{par:<10} │ {'✗':<3} │ {'N/A':<10} │ {'N/A':<10} │ "
-                    f"{'N/A':<11} │ {'N/A':<7} │ {res['tiempo_segundos']:>9.1f}"
-                )
-                logger.info(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
+                if res['exito']:
+                    logger.info(
+                        f"{par:<10} │ {timeframe:<4} │ {'✓':<3} │ {res['n_features']:>9,} │ "
+                        f"{res['n_filas']:>9,} │ {res['tamaño_mb']:>10.1f} │ "
+                        f"{res['pct_nan']:>6.1f} │ {res['tiempo_segundos']:>9.1f}"
+                    )
+                else:
+                    logger.info(
+                        f"{par:<10} │ {timeframe:<4} │ {'✗':<3} │ {'N/A':<10} │ {'N/A':<10} │ "
+                        f"{'N/A':<11} │ {'N/A':<7} │ {res['tiempo_segundos']:>9.1f}"
+                    )
+                    logger.info(f"{'':15} └─ Error: {res.get('error', 'Desconocido')}")
 
         logger.info("─" * 100)
 
@@ -416,12 +433,14 @@ class EjecutorGeneracionCompleta:
 
 
 def main():
-    """Función principal."""
+    """Función principal - MULTI-TIMEFRAME."""
     # Configuración
     BASE_DIR = Path(__file__).parent
     DATA_DIR = BASE_DIR / 'datos' / 'ohlc'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'features'
-    TIMEFRAME = 'M15'
+
+    # MULTI-TIMEFRAME: Generar transformaciones para todos los timeframes
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
@@ -432,11 +451,11 @@ def main():
         logger.error(f"Directorio de datos no encontrado: {DATA_DIR}")
         return
 
-    # Ejecutar generación
+    # Ejecutar generación MULTI-TIMEFRAME
     ejecutor = EjecutorGeneracionCompleta(
         data_dir=DATA_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         limpiar_archivos_viejos=LIMPIAR_ARCHIVOS_VIEJOS,
         hacer_backup=HACER_BACKUP
     )

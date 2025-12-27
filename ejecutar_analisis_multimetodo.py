@@ -82,6 +82,7 @@ def convert_numpy_types(obj):
 # Agregar directorio padre al path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from constants import EPSILON, EPSILON_NORMALIZATION
 from analisis_multi_metodo.analisis_estadistico import AnalizadorEstadistico
 from analisis_multi_metodo.machine_learning import AnalizadorML
 from analisis_multi_metodo.metodos_fisica import MetodosFisica
@@ -153,19 +154,19 @@ class EjecutorAnalisisMultimetodo:
         self,
         features_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         horizonte_prediccion: int = 1,
         limpiar_archivos_viejos: bool = True,
         hacer_backup: bool = False,
         usar_deep_learning: bool = False
     ):
         """
-        Inicializa el ejecutor.
+        Inicializa el ejecutor MULTI-TIMEFRAME.
 
         Args:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar resultados del análisis
-            timeframe: Timeframe procesado (default: 'M15')
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
             horizonte_prediccion: Períodos adelante para calcular retorno objetivo
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
             hacer_backup: Si True, hace backup antes de borrar
@@ -173,7 +174,7 @@ class EjecutorAnalisisMultimetodo:
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.horizonte_prediccion = horizonte_prediccion
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
@@ -328,18 +329,19 @@ class EjecutorAnalisisMultimetodo:
 
         return X_seleccionado, nombres_seleccionados, df_seleccion
 
-    def cargar_features_y_preparar_datos(self, par: str) -> tuple:
+    def cargar_features_y_preparar_datos(self, par: str, timeframe: str) -> tuple:
         """
         Carga features y prepara X, y para análisis.
 
         Args:
             par: Nombre del par (ej: 'EUR_USD')
+            timeframe: Timeframe a cargar
 
         Returns:
             (X, y, nombres_features, df_completo)
         """
         # Cargar archivo de features
-        archivo_features = self.features_dir / f"{par}_{self.timeframe}_features.parquet"
+        archivo_features = self.features_dir / f"{par}_{timeframe}_features.parquet"
 
         if not archivo_features.exists():
             logger.error(f"Archivo no encontrado: {archivo_features}")
@@ -394,7 +396,7 @@ class EjecutorAnalisisMultimetodo:
 
         for i, nombre in enumerate(nombres_features):
             col = X[:, i]
-            if not np.all(np.isnan(col)) and np.nanstd(col) > 1e-10:
+            if not np.all(np.isnan(col)) and np.nanstd(col) > EPSILON:
                 valid_features.append(nombre)
                 valid_indices.append(i)
 
@@ -554,30 +556,31 @@ class EjecutorAnalisisMultimetodo:
 
                 # Normalizar
                 mean = np.nanmean(window, axis=0)
-                std = np.nanstd(window, axis=0) + 1e-8
+                std = np.nanstd(window, axis=0) + EPSILON_NORMALIZATION
                 X_3d_norm[seq_idx, t, :] = (X_3d[seq_idx, t, :] - mean) / std
 
         return X_3d_norm
 
-    def analizar_un_par(self, par: str) -> dict:
+    def analizar_un_par(self, par: str, timeframe: str) -> dict:
         """
-        Ejecuta análisis multi-método para un par.
+        Ejecuta análisis multi-método para un par en un timeframe específico.
 
         Args:
             par: Nombre del par (ej: 'EUR_USD')
+            timeframe: Timeframe a analizar (ej: 'M15', 'H1', etc.)
 
         Returns:
             Diccionario con estadísticas del análisis
         """
         logger.info("\n" + "="*80)
-        logger.info(f"ANALIZANDO PAR: {par}")
+        logger.info(f"ANALIZANDO: {par} - {timeframe}")
         logger.info("="*80)
 
         inicio = datetime.now()
 
         try:
             # Cargar y preparar datos
-            X, y, nombres_features, df_completo = self.cargar_features_y_preparar_datos(par)
+            X, y, nombres_features, df_completo = self.cargar_features_y_preparar_datos(par, timeframe)
 
             if X is None:
                 return {
@@ -611,13 +614,13 @@ class EjecutorAnalisisMultimetodo:
             )
 
             # Guardar top features por IC
-            output_ic = self.output_dir / f"{par}_{self.timeframe}_analisis_IC.csv"
+            output_ic = self.output_dir / f"{par}_{timeframe}_analisis_IC.csv"
             df_ic.to_csv(output_ic, index=False)
             logger.info(f"✓ IC guardado: {output_ic}")
 
             # Información mutua
             df_mi = analizador_est.calcular_informacion_mutua()
-            output_mi = self.output_dir / f"{par}_{self.timeframe}_analisis_MI.csv"
+            output_mi = self.output_dir / f"{par}_{timeframe}_analisis_MI.csv"
             df_mi.to_csv(output_mi, index=False)
             logger.info(f"✓ MI guardado: {output_mi}")
 
@@ -664,7 +667,7 @@ class EjecutorAnalisisMultimetodo:
             )
 
             # Guardar features seleccionados
-            output_seleccion = self.output_dir / f"{par}_{self.timeframe}_features_seleccionados.csv"
+            output_seleccion = self.output_dir / f"{par}_{timeframe}_features_seleccionados.csv"
             df_seleccion.to_csv(output_seleccion, index=False)
             logger.info(f"\n✓ Features seleccionados guardados: {output_seleccion}")
 
@@ -689,7 +692,7 @@ class EjecutorAnalisisMultimetodo:
 
             # Guardar feature importance
             df_importance = resultado_rf['feature_importance']
-            output_rf = self.output_dir / f"{par}_{self.timeframe}_analisis_RF_importance.csv"
+            output_rf = self.output_dir / f"{par}_{timeframe}_analisis_RF_importance.csv"
             df_importance.to_csv(output_rf, index=False)
             logger.info(f"✓ RF importance guardado: {output_rf}")
 
@@ -996,7 +999,7 @@ class EjecutorAnalisisMultimetodo:
                         resultados_par['analisis']['deep_learning'] = resultados_dl
 
                         # Guardar resumen en JSON
-                        output_dl = self.output_dir / f"{par}_{self.timeframe}_analisis_DL.json"
+                        output_dl = self.output_dir / f"{par}_{timeframe}_analisis_DL.json"
                         with open(output_dl, 'w') as f:
                             json.dump(resultados_dl, f, indent=2)
                         logger.info(f"\n✓ Resultados DL guardados: {output_dl}")
@@ -1016,7 +1019,7 @@ class EjecutorAnalisisMultimetodo:
             # ==========================================
             # GUARDAR RESULTADOS CONSOLIDADOS
             # ==========================================
-            output_json = self.output_dir / f"{par}_{self.timeframe}_analisis_completo.json"
+            output_json = self.output_dir / f"{par}_{timeframe}_analisis_completo.json"
 
             # Convertir tipos numpy a tipos nativos de Python para JSON
             resultados_par_json = convert_numpy_types(resultados_par)
@@ -1050,15 +1053,16 @@ class EjecutorAnalisisMultimetodo:
 
     def ejecutar_todos(self):
         """
-        Ejecuta el análisis para todos los pares.
+        Ejecuta el análisis MULTI-TIMEFRAME para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
 
         logger.info("\n" + "="*80)
-        logger.info("ANÁLISIS MULTI-MÉTODO - TODOS LOS PARES")
+        logger.info("ANÁLISIS MULTI-MÉTODO - MULTI-TIMEFRAME")
         logger.info("="*80)
         logger.info(f"Pares a analizar: {len(self.pares)}")
-        logger.info(f"Timeframe: {self.timeframe}")
+        logger.info(f"Timeframes: {', '.join(self.timeframes)}")
+        logger.info(f"Total combinaciones: {len(self.pares) * len(self.timeframes)}")
         logger.info(f"Horizonte predicción: {self.horizonte_prediccion} período(s)")
         logger.info(f"Directorio features: {self.features_dir}")
         logger.info(f"Directorio salida: {self.output_dir}")
@@ -1075,12 +1079,20 @@ class EjecutorAnalisisMultimetodo:
             logger.info("="*80)
             self.limpiar_directorio_salida()
 
-        # Analizar cada par
-        for i, par in enumerate(tqdm(self.pares, desc="Analizando pares", unit="par"), 1):
-            logger.info(f"\n[{i}/{len(self.pares)}] Analizando: {par}")
+        # Analizar cada par en cada timeframe
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        contador = 0
 
-            resultado = self.analizar_un_par(par)
-            self.resultados[par] = resultado
+        for par in self.pares:
+            for timeframe in self.timeframes:
+                contador += 1
+                logger.info(f"\n[{contador}/{total_combinaciones}] {par} - {timeframe}")
+
+                resultado = self.analizar_un_par(par, timeframe)
+
+                # Guardar resultado con clave compuesta
+                key = f"{par}_{timeframe}"
+                self.resultados[key] = resultado
 
         self.tiempo_fin = datetime.now()
 
@@ -1352,16 +1364,18 @@ class EjecutorAnalisisMultimetodo:
 
 
 def main():
-    """Función principal."""
+    """Función principal - MULTI-TIMEFRAME."""
     # Configuración
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'analisis_multimetodo'
-    TIMEFRAME = 'M15'
+
+    # MULTI-TIMEFRAME: Analizar todos los timeframes
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
 
     # Opciones de análisis
     HORIZONTE_PREDICCION = 1  # Predecir retorno 1 período adelante
-    USAR_DEEP_LEARNING = True  # True = Incluir análisis con DL (requiere TensorFlow)
+    USAR_DEEP_LEARNING = False  # True = Incluir análisis con DL (requiere TensorFlow y mucho tiempo)
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar
@@ -1373,11 +1387,11 @@ def main():
         logger.error("Ejecuta primero: python ejecutar_generacion_transformaciones.py")
         return
 
-    # Ejecutar análisis
+    # Ejecutar análisis MULTI-TIMEFRAME
     ejecutor = EjecutorAnalisisMultimetodo(
         features_dir=FEATURES_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         horizonte_prediccion=HORIZONTE_PREDICCION,
         limpiar_archivos_viejos=LIMPIAR_ARCHIVOS_VIEJOS,
         hacer_backup=HACER_BACKUP,

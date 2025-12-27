@@ -30,7 +30,12 @@ import pandas as pd
 from typing import Dict, List, Tuple, Callable, Optional
 from pathlib import Path
 import warnings
+import sys
 warnings.filterwarnings('ignore')
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
 
 
 class BootstrapIntervalosConfianza:
@@ -227,7 +232,7 @@ class BootstrapIntervalosConfianza:
         running_max = np.maximum.accumulate(cumret)
 
         # CRÍTICO #2 CORREGIDO: Evitar división por cero si running_max es 0
-        drawdown = (cumret - running_max) / np.maximum(running_max, 1e-10)
+        drawdown = (cumret - running_max) / np.maximum(running_max, EPSILON)
         max_dd = np.abs(np.min(drawdown))
         return max_dd
 

@@ -36,6 +36,12 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple
 import logging
+from pathlib import Path
+import sys
+
+# Importar constantes centralizadas
+sys.path.append(str(Path(__file__).parent.parent))
+from constants import EPSILON
 
 logging.basicConfig(
     level=logging.INFO,
@@ -112,7 +118,7 @@ class RegimeDetector:
         minus_di = 100 * (minus_dm.rolling(ventana).mean() / atr)
 
         # Directional Index
-        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10)
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di + EPSILON)
 
         # ADX es la media móvil de DX
         adx = dx.rolling(ventana).mean()

@@ -85,7 +85,7 @@ class EjecutorBacktest:
         datos_ohlc_dir: Path,
         estrategias_dir: Path,
         output_dir: Path,
-        timeframe: str = 'M15',
+        timeframes: list = None,
         capital_inicial: float = 100000,
         pares: Optional[List[str]] = None,
         limpiar_archivos_viejos: bool = True,
@@ -93,7 +93,7 @@ class EjecutorBacktest:
         verbose: bool = True
     ):
         """
-        Inicializa el ejecutor de Backtest.
+        Inicializa el ejecutor de Backtest MULTI-TIMEFRAME.
 
         Parameters:
         -----------
@@ -103,8 +103,8 @@ class EjecutorBacktest:
             Directorio con estrategias generadas (estrategia_emergente/codigo/)
         output_dir : Path
             Directorio para guardar resultados de backtest
-        timeframe : str
-            Timeframe a procesar
+        timeframes : list
+            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
         capital_inicial : float
             Capital inicial para backtest (default: $100,000)
         pares : List[str], optional
@@ -119,7 +119,7 @@ class EjecutorBacktest:
         self.datos_ohlc_dir = Path(datos_ohlc_dir)
         self.estrategias_dir = Path(estrategias_dir)
         self.output_dir = Path(output_dir)
-        self.timeframe = timeframe
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.capital_inicial = capital_inicial
         self.verbose = verbose
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
@@ -1003,21 +1003,21 @@ def main():
     # Directorio de salida
     OUTPUT_DIR = DATOS_DIR / 'backtest'
 
-    # Parámetros
-    TIMEFRAME = 'M15'
+    # Parámetros MULTI-TIMEFRAME
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
     CAPITAL_INICIAL = 100000  # $100,000
     PARES = ['EUR_USD', 'GBP_USD', 'USD_JPY', 'EUR_JPY', 'GBP_JPY', 'AUD_USD']  # Lista de pares a procesar (None = auto-detectar)
 
-    # Crear ejecutor
+    # Crear ejecutor MULTI-TIMEFRAME
     ejecutor = EjecutorBacktest(
         datos_ohlc_dir=DATOS_OHLC_DIR,
         estrategias_dir=ESTRATEGIAS_DIR,
         output_dir=OUTPUT_DIR,
-        timeframe=TIMEFRAME,
+        timeframes=TIMEFRAMES,
         capital_inicial=CAPITAL_INICIAL,
         pares=PARES,
         limpiar_archivos_viejos=True,  # Limpiar archivos viejos
-        hacer_backup=True,              # Hacer backup antes de limpiar
+        hacer_backup=False,             # NO hacer backup (ahorra espacio)
         verbose=True                    # Imprimir progreso detallado
     )
 
