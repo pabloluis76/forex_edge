@@ -63,10 +63,53 @@ from regresion_ridge_lasso import RegresionRegularizada, RegularizacionCV
 from pca import PCA
 from correlacion_causalidad import AnalisisCorrelacion
 
+# Configurar logging con captura de INFO, WARNING, ERROR
+class LogCapture(logging.Handler):
+    """Handler personalizado para capturar logs de INFO, WARNING y ERROR."""
+
+    def __init__(self):
+        super().__init__()
+        self.info_logs = []
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        """Captura logs según su nivel."""
+        if record.levelno >= logging.ERROR:
+            self.errors.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.WARNING:
+            self.warnings.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO con keywords de anomalías
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
+
 # Configurar logging
+log_capture = LogCapture()
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        log_capture
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -514,64 +557,238 @@ class EjecutorMetodosEstadisticosClasicos:
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen final del análisis."""
+        """Imprime resumen final detallado del análisis."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        logger.info("\n" + "="*80)
-        logger.info("RESUMEN FINAL - MÉTODOS ESTADÍSTICOS CLÁSICOS")
-        logger.info("="*80)
-
-        # Tabla de resultados
-        logger.info("\nRESULTADOS POR PAR:")
-        logger.info("-" * 100)
-        logger.info(f"{'Par':<10} │ {'Exito':<6} │ {'R² OLS':<8} │ {'Lasso Sel.':<12} │ {'PCA 50':<8} │ {'Tiempo (s)':<12}")
-        logger.info("-" * 100)
-
+        # Recopilar estadísticas
         exitosos = 0
+        r2_ols_vals = []
+        lasso_sel_vals = []
+        tiempos = []
+
+        for par in self.pares:
+            res = self.resultados[par]
+            if res['exito']:
+                exitosos += 1
+                r2_ols_vals.append(res['analisis']['regresion_lineal']['r_squared'])
+                lasso_sel_vals.append(res['analisis']['lasso']['n_features_seleccionados'])
+                tiempos.append(res['tiempo_segundos'])
+
+        logger.info("\n" + "="*100)
+        logger.info(f"{'RESUMEN FINAL - MÉTODOS ESTADÍSTICOS CLÁSICOS':^100}")
+        logger.info("="*100)
+
+        # ============================================================
+        # SECCIÓN 1: RESUMEN EJECUTIVO
+        # ============================================================
+        logger.info("\n1. RESUMEN EJECUTIVO")
+        logger.info("-" * 100)
+        logger.info(f"  Pares analizados exitosamente: {exitosos}/{len(self.pares)}")
+        logger.info(f"  Tiempo total:                  {tiempo_total:.1f}s ({tiempo_total/60:.1f} min)")
+        logger.info(f"  Tiempo promedio por par:       {tiempo_total/len(self.pares):.1f}s")
+
+        if r2_ols_vals:
+            logger.info(f"  R² promedio (OLS):             {np.mean(r2_ols_vals):.4f}")
+            logger.info(f"  Features seleccionados (Lasso): {int(np.mean(lasso_sel_vals))} promedio")
+
+        # ============================================================
+        # SECCIÓN 2: TABLA COMPLETA DE RESULTADOS
+        # ============================================================
+        logger.info(f"\n2. TABLA COMPLETA DE RESULTADOS")
+        logger.info("-" * 100)
+        logger.info(f"{'Par':<12} {'Estado':<8} {'R² OLS':<10} {'R² Lasso':<10} {'Feat.Sel':<10} "
+                   f"{'PCA 10C':<10} {'Redund.':<10} {'Tiempo(s)':<10}")
+        logger.info("-" * 100)
 
         for par in self.pares:
             res = self.resultados[par]
 
             if res['exito']:
-                exitosos += 1
                 r2_ols = res['analisis']['regresion_lineal']['r_squared']
+                r2_lasso = res['analisis']['lasso']['r_squared']
                 lasso_sel = res['analisis']['lasso']['n_features_seleccionados']
-                pca_var = res['analisis']['pca']['varianza_50_comp']
+                pca_var = res['analisis']['pca']['varianza_10_comp']
+                n_redund = res['analisis']['correlacion']['n_pares_redundantes']
 
                 logger.info(
-                    f"{par:<10} │ {'✓':<6} │ {r2_ols:<8.4f} │ "
-                    f"{lasso_sel:<12} │ {pca_var:<8.2%} │ {res['tiempo_segundos']:<12.1f}"
+                    f"{par:<12} {'✓':<8} {r2_ols:<10.4f} {r2_lasso:<10.4f} {lasso_sel:<10} "
+                    f"{pca_var:<10.2%} {n_redund:<10} {res['tiempo_segundos']:<10.1f}"
                 )
             else:
-                logger.info(
-                    f"{par:<10} │ {'✗':<6} │ {'N/A':<8} │ {'N/A':<12} │ "
-                    f"{'N/A':<8} │ {res['tiempo_segundos']:<12.1f}"
-                )
-                logger.info(f"           Error: {res.get('error', 'Desconocido')}")
+                logger.info(f"{par:<12} {'✗':<8} Error: {res.get('error', 'Desconocido')}")
 
         logger.info("-" * 100)
 
-        # Estadísticas globales
-        logger.info("\nESTADÍSTICAS GLOBALES:")
-        logger.info(f"  Pares analizados exitosamente: {exitosos}/{len(self.pares)}")
-        logger.info(f"  Tiempo total: {tiempo_total:.1f} segundos ({tiempo_total/60:.1f} minutos)")
-        logger.info(f"  Tiempo promedio por par: {tiempo_total/len(self.pares):.1f} segundos")
+        # ============================================================
+        # SECCIÓN 3: ANÁLISIS ESTADÍSTICO
+        # ============================================================
+        if r2_ols_vals:
+            logger.info(f"\n3. ANÁLISIS ESTADÍSTICO DE RESULTADOS")
+            logger.info("-" * 100)
 
-        # Conclusión
-        logger.info("\n" + "="*80)
-        if exitosos == len(self.pares):
-            logger.info("✓ ANÁLISIS COMPLETADO EXITOSAMENTE")
-            logger.info(f"  Todos los {len(self.pares)} pares analizados correctamente")
-            logger.info(f"  Resultados guardados en: {self.output_dir}")
-            logger.info("\nPRÓXIMO PASO:")
-            logger.info("  → Comparar resultados entre métodos")
-            logger.info("  → Identificar features más robustos")
-            logger.info("  → Ejecutar sistema de consenso")
+            logger.info(f"\n  R² OLS:")
+            logger.info(f"    Mínimo:              {np.min(r2_ols_vals):.4f}")
+            logger.info(f"    Máximo:              {np.max(r2_ols_vals):.4f}")
+            logger.info(f"    Media:               {np.mean(r2_ols_vals):.4f}")
+            logger.info(f"    Mediana:             {np.median(r2_ols_vals):.4f}")
+            logger.info(f"    Desviación estándar: {np.std(r2_ols_vals):.4f}")
+
+            logger.info(f"\n  Features Seleccionados (Lasso):")
+            logger.info(f"    Mínimo:              {int(np.min(lasso_sel_vals))}")
+            logger.info(f"    Máximo:              {int(np.max(lasso_sel_vals))}")
+            logger.info(f"    Media:               {int(np.mean(lasso_sel_vals))}")
+            logger.info(f"    Mediana:             {int(np.median(lasso_sel_vals))}")
+
+            logger.info(f"\n  Tiempos de Procesamiento:")
+            logger.info(f"    Mínimo:              {np.min(tiempos):.1f}s")
+            logger.info(f"    Máximo:              {np.max(tiempos):.1f}s")
+            logger.info(f"    Media:               {np.mean(tiempos):.1f}s")
+
+        # ============================================================
+        # SECCIÓN 4: DETALLES POR PAR Y MÉTODO
+        # ============================================================
+        logger.info(f"\n4. DETALLES POR PAR Y MÉTODO")
+        logger.info("-" * 100)
+
+        for par in self.pares:
+            res = self.resultados[par]
+            if res['exito']:
+                logger.info(f"\n  {par}:")
+
+                # OLS
+                ols = res['analisis']['regresion_lineal']
+                logger.info(f"    Regresión OLS:")
+                logger.info(f"      R²:                   {ols['r_squared']:.4f}")
+                logger.info(f"      R² ajustado:          {ols['r_squared_adj']:.4f}")
+                logger.info(f"      Coef. significativos: {ols['n_coef_significativos']}")
+                logger.info(f"      F-statistic:          {ols['f_statistic']:.2f} (p={ols['f_pvalue']:.4e})")
+
+                # Lasso
+                lasso = res['analisis']['lasso']
+                logger.info(f"    Regresión Lasso:")
+                logger.info(f"      R²:                   {lasso['r_squared']:.4f}")
+                logger.info(f"      Features seleccionados: {lasso['n_features_seleccionados']}")
+                logger.info(f"      Lambda óptimo:        {lasso['lambda_optimo']:.4e}")
+
+                # Ridge
+                ridge = res['analisis']['ridge']
+                logger.info(f"    Regresión Ridge:")
+                logger.info(f"      R²:                   {ridge['r_squared']:.4f}")
+                logger.info(f"      Lambda óptimo:        {ridge['lambda_optimo']:.4e}")
+
+                # PCA
+                pca = res['analisis']['pca']
+                logger.info(f"    PCA:")
+                logger.info(f"      N componentes:        {pca['n_componentes']}")
+                logger.info(f"      Varianza 10 comp:     {pca['varianza_10_comp']:.2%}")
+                if pca['varianza_20_comp'] is not None:
+                    logger.info(f"      Varianza 20 comp:     {pca['varianza_20_comp']:.2%}")
+                logger.info(f"      Varianza 50 comp:     {pca['varianza_50_comp']:.2%}")
+
+                # Correlación
+                corr = res['analisis']['correlacion']
+                logger.info(f"    Correlación:")
+                logger.info(f"      Pares redundantes:    {corr['n_pares_redundantes']}")
+                if corr['pares_redundantes_muestra']:
+                    logger.info(f"      Muestra:              {corr['pares_redundantes_muestra'][:2]}")
+
+        # ============================================================
+        # SECCIÓN 5: LOGS CAPTURADOS
+        # ============================================================
+        logger.info(f"\n5. LOGS CAPTURADOS (ERRORES, WARNINGS, ANOMALÍAS)")
+        logger.info("-" * 100)
+
+        total_logs = len(log_capture.errors) + len(log_capture.warnings) + len(log_capture.info_logs)
+
+        if total_logs == 0:
+            logger.info("  ✓ No se detectaron errores, warnings ni anomalías")
         else:
-            logger.info(f"⚠️  ANÁLISIS COMPLETADO CON ERRORES")
-            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            if log_capture.errors:
+                logger.info(f"\n  ERRORES ({len(log_capture.errors)}):")
+                for i, error in enumerate(log_capture.errors[:10], 1):
+                    logger.info(f"    [{error['timestamp']}] {error['mensaje']}")
+                    logger.info(f"                   → {error['modulo']}:{error['linea']}")
+                if len(log_capture.errors) > 10:
+                    logger.info(f"    ... y {len(log_capture.errors) - 10} errores más")
 
-        logger.info("="*80)
+            if log_capture.warnings:
+                logger.info(f"\n  WARNINGS ({len(log_capture.warnings)}):")
+                for i, warn in enumerate(log_capture.warnings[:10], 1):
+                    logger.info(f"    [{warn['timestamp']}] {warn['mensaje']}")
+                if len(log_capture.warnings) > 10:
+                    logger.info(f"    ... y {len(log_capture.warnings) - 10} warnings más")
+
+            if log_capture.info_logs:
+                logger.info(f"\n  ANOMALÍAS DETECTADAS EN INFO ({len(log_capture.info_logs)}):")
+                for i, info in enumerate(log_capture.info_logs[:10], 1):
+                    logger.info(f"    [{info['timestamp']}] {info['mensaje']}")
+                if len(log_capture.info_logs) > 10:
+                    logger.info(f"    ... y {len(log_capture.info_logs) - 10} más")
+
+        # ============================================================
+        # SECCIÓN 6: ARCHIVOS GENERADOS
+        # ============================================================
+        logger.info(f"\n6. ARCHIVOS GENERADOS")
+        logger.info("-" * 100)
+        logger.info(f"  Directorio base:     {self.output_dir}")
+        logger.info(f"\n  Subdirectorios y archivos:")
+
+        # Regresión lineal
+        logger.info(f"    - Regresión Lineal:     {self.regresion_dir}")
+        archivos_reg = list(self.regresion_dir.glob("*.csv"))
+        if archivos_reg:
+            logger.info(f"                            {len(archivos_reg)} archivos CSV (coeficientes)")
+
+        # Regresión regularizada
+        logger.info(f"    - Regresión Regularizada: {self.regularizada_dir}")
+        archivos_lasso = list(self.regularizada_dir.glob("*.csv"))
+        if archivos_lasso:
+            logger.info(f"                            {len(archivos_lasso)} archivos CSV (features seleccionados)")
+
+        # PCA
+        logger.info(f"    - PCA:                  {self.pca_dir}")
+        archivos_pca = list(self.pca_dir.glob("*.csv"))
+        if archivos_pca:
+            logger.info(f"                            {len(archivos_pca)} archivos CSV (componentes)")
+
+        # Correlación
+        logger.info(f"    - Correlación:          {self.correlacion_dir}")
+        archivos_corr = list(self.correlacion_dir.glob("*.csv"))
+        if archivos_corr:
+            logger.info(f"                            {len(archivos_corr)} archivos CSV (matrices)")
+
+        # Archivos consolidados
+        archivos_json = list(self.output_dir.glob("*_estadisticos_completo.json"))
+        if archivos_json:
+            logger.info(f"\n  Resultados consolidados: {len(archivos_json)} archivos JSON")
+
+        # ============================================================
+        # SECCIÓN 7: CONCLUSIÓN
+        # ============================================================
+        logger.info(f"\n7. CONCLUSIÓN")
+        logger.info("-" * 100)
+
+        if exitosos == len(self.pares):
+            logger.info(f"  ✓ ANÁLISIS ESTADÍSTICO COMPLETADO EXITOSAMENTE")
+            logger.info(f"  Todos los {len(self.pares)} pares analizados correctamente")
+            logger.info(f"\n  Métodos aplicados:")
+            logger.info(f"    • OLS:         Regresión lineal, coeficientes β, R², F-statistic")
+            logger.info(f"    • Lasso:       Regularización L1, selección automática de features")
+            logger.info(f"    • Ridge:       Regularización L2, prevención de overfitting")
+            logger.info(f"    • PCA:         Reducción de dimensionalidad, varianza explicada")
+            logger.info(f"    • Correlación: Identificación de features redundantes")
+            logger.info(f"\n  Próximos pasos:")
+            logger.info(f"    1. ejecutar_analisis_multimetodo.py     → ML + Deep Learning")
+            logger.info(f"    2. ejecutar_consenso_metodos.py         → Consenso entre métodos")
+            logger.info(f"    3. ejecutar_validacion_rigurosa.py      → Walk-Forward + Bootstrap")
+            logger.info(f"    4. ejecutar_estrategia_emergente.py     → Emergencia de reglas")
+            logger.info(f"    5. ejecutar_backtest.py                 → Backtest completo")
+        else:
+            logger.info(f"  ⚠️  ANÁLISIS COMPLETADO CON ERRORES")
+            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            logger.info(f"  Revisar logs de errores arriba")
+
+        logger.info("="*100 + "\n")
 
 
 def main():

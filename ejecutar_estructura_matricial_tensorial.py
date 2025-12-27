@@ -38,10 +38,53 @@ from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
 
+# Configurar logging con captura de INFO, WARNING, ERROR
+class LogCapture(logging.Handler):
+    """Handler personalizado para capturar logs de INFO, WARNING y ERROR."""
+
+    def __init__(self):
+        super().__init__()
+        self.info_logs = []
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        """Captura logs según su nivel."""
+        if record.levelno >= logging.ERROR:
+            self.errors.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.WARNING:
+            self.warnings.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO con keywords de anomalías
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
+
 # Configurar logging
+log_capture = LogCapture()
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        log_capture
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -486,60 +529,224 @@ class EjecutorEstructuraMatricialTensorial:
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen final."""
+        """Imprime resumen final detallado."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        logger.info(f"\n{'='*80}")
-        logger.info("RESUMEN FINAL - ESTRUCTURA MATRICIAL Y TENSORIAL")
-        logger.info(f"{'='*80}")
-
-        # Tabla de resultados
-        logger.info(f"\nRESULTADOS POR PAR:")
-        logger.info("-" * 80)
-
+        # Recopilar estadísticas
         exitosos = 0
+        total_memoria_mb = 0
+        total_archivo_mb = 0
+        tiempos = []
 
         for par in self.pares:
             res = self.resultados.get(par, {})
-
             matriz_ok = res.get('matriz_2d', {}).get('exito', False)
             tensor_ok = res.get('tensor_3d', {}).get('exito', False)
             norm_ok = res.get('normalizacion', {}).get('exito', False)
 
             if matriz_ok and tensor_ok and norm_ok:
                 exitosos += 1
+                # Sumar memoria de matriz 2D y tensor 3D
+                total_memoria_mb += res.get('matriz_2d', {}).get('memoria_mb', 0)
+                total_memoria_mb += res.get('tensor_3d', {}).get('memoria_mb', 0)
+                total_archivo_mb += res.get('matriz_2d', {}).get('archivo_mb', 0)
+                total_archivo_mb += res.get('tensor_3d', {}).get('archivo_mb', 0)
+
+                # Tiempo total por par
+                tiempo_par = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
+                             res.get('tensor_3d', {}).get('tiempo_s', 0) +
+                             res.get('normalizacion', {}).get('tiempo_s', 0))
+                tiempos.append(tiempo_par)
+
+        logger.info("\n" + "="*100)
+        logger.info(f"{'RESUMEN FINAL - ESTRUCTURA MATRICIAL Y TENSORIAL':^100}")
+        logger.info("="*100)
+
+        # ============================================================
+        # SECCIÓN 1: RESUMEN EJECUTIVO
+        # ============================================================
+        logger.info("\n1. RESUMEN EJECUTIVO")
+        logger.info("-" * 100)
+        logger.info(f"  Pares procesados exitosamente: {exitosos}/{len(self.pares)}")
+        logger.info(f"  Tiempo total:                  {tiempo_total:.1f}s ({tiempo_total/60:.1f} min)")
+        logger.info(f"  Tiempo promedio por par:       {tiempo_total/len(self.pares):.1f}s")
+        logger.info(f"  Memoria total (en RAM):        {total_memoria_mb:.1f} MB")
+        logger.info(f"  Archivos generados:            {total_archivo_mb:.1f} MB")
+
+        # Calcular promedio de compresión
+        if total_memoria_mb > 0:
+            ratio_compresion = (total_archivo_mb / total_memoria_mb) * 100
+            logger.info(f"  Ratio de compresión:           {ratio_compresion:.1f}% (npz comprimido)")
+
+        # ============================================================
+        # SECCIÓN 2: TABLA COMPLETA DE RESULTADOS
+        # ============================================================
+        logger.info(f"\n2. TABLA COMPLETA DE RESULTADOS")
+        logger.info("-" * 100)
+        logger.info(f"{'Par':<12} {'Estado':<8} {'Shape 2D':<18} {'Shape 3D':<22} {'Mem(MB)':<10} {'Archivo(MB)':<12} {'Tiempo(s)':<10}")
+        logger.info("-" * 100)
+
+        for par in self.pares:
+            res = self.resultados.get(par, {})
+            matriz_ok = res.get('matriz_2d', {}).get('exito', False)
+            tensor_ok = res.get('tensor_3d', {}).get('exito', False)
+            norm_ok = res.get('normalizacion', {}).get('exito', False)
+
+            if matriz_ok and tensor_ok and norm_ok:
                 estado = "✓"
+                shape_2d = res.get('matriz_2d', {}).get('shape', (0,0))
+                shape_3d = res.get('tensor_3d', {}).get('shape', (0,0,0))
+                memoria_mb = (res.get('matriz_2d', {}).get('memoria_mb', 0) +
+                             res.get('tensor_3d', {}).get('memoria_mb', 0))
+                archivo_mb = (res.get('matriz_2d', {}).get('archivo_mb', 0) +
+                             res.get('tensor_3d', {}).get('archivo_mb', 0))
+                tiempo_par = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
+                             res.get('tensor_3d', {}).get('tiempo_s', 0) +
+                             res.get('normalizacion', {}).get('tiempo_s', 0))
+
+                shape_2d_str = f"{shape_2d[0]}×{shape_2d[1]}"
+                shape_3d_str = f"{shape_3d[0]}×{shape_3d[1]}×{shape_3d[2]}"
+
+                logger.info(f"{par:<12} {estado:<8} {shape_2d_str:<18} {shape_3d_str:<22} "
+                          f"{memoria_mb:<10.1f} {archivo_mb:<12.1f} {tiempo_par:<10.1f}")
             else:
                 estado = "✗"
+                error_msg = "Error en procesamiento"
+                logger.info(f"{par:<12} {estado:<8} {error_msg}")
 
-            logger.info(f"{par}: {estado} | Matriz 2D: {matriz_ok} | Tensor 3D: {tensor_ok} | Normalización: {norm_ok}")
+        logger.info("-" * 100)
 
-        logger.info("-" * 80)
+        # ============================================================
+        # SECCIÓN 3: ANÁLISIS ESTADÍSTICO DE TIEMPOS
+        # ============================================================
+        if tiempos:
+            logger.info(f"\n3. ANÁLISIS ESTADÍSTICO DE TIEMPOS")
+            logger.info("-" * 100)
+            logger.info(f"  Mínimo:              {np.min(tiempos):.1f}s")
+            logger.info(f"  Máximo:              {np.max(tiempos):.1f}s")
+            logger.info(f"  Media:               {np.mean(tiempos):.1f}s")
+            logger.info(f"  Mediana:             {np.median(tiempos):.1f}s")
+            logger.info(f"  Desviación estándar: {np.std(tiempos):.1f}s")
 
-        # Estadísticas globales
-        logger.info(f"\nESTADÍSTICAS GLOBALES:")
-        logger.info(f"  Pares procesados exitosamente: {exitosos}/{len(self.pares)}")
-        logger.info(f"  Tiempo total: {tiempo_total:.1f}s ({tiempo_total/60:.1f} min)")
-        logger.info(f"  Tiempo promedio por par: {tiempo_total/len(self.pares):.1f}s")
+        # ============================================================
+        # SECCIÓN 4: DETALLES POR PAR
+        # ============================================================
+        logger.info(f"\n4. DETALLES POR PAR")
+        logger.info("-" * 100)
 
-        # Conclusión
-        logger.info(f"\n{'='*80}")
-        if exitosos == len(self.pares):
-            logger.info("✓ ESTRUCTURA MATRICIAL/TENSORIAL COMPLETADA EXITOSAMENTE")
-            logger.info(f"  Todos los {len(self.pares)} pares procesados")
-            logger.info(f"\nARCHIVOS GENERADOS:")
-            logger.info(f"  Matrices 2D:    {self.matriz_2d_dir}")
-            logger.info(f"  Tensores 3D:    {self.tensor_3d_dir}")
-            logger.info(f"  Normalización:  {self.normalizacion_dir}")
-            logger.info(f"\nPRÓXIMO PASO:")
-            logger.info(f"  → Análisis multi-método")
-            logger.info(f"  → Sistema de consenso")
-            logger.info(f"  → Validación rigurosa")
+        for par in self.pares:
+            res = self.resultados.get(par, {})
+            matriz_ok = res.get('matriz_2d', {}).get('exito', False)
+            tensor_ok = res.get('tensor_3d', {}).get('exito', False)
+            norm_ok = res.get('normalizacion', {}).get('exito', False)
+
+            if matriz_ok and tensor_ok and norm_ok:
+                logger.info(f"\n  {par}:")
+
+                # Matriz 2D
+                matriz_2d = res.get('matriz_2d', {})
+                shape_2d = matriz_2d.get('shape', (0,0))
+                logger.info(f"    Matriz 2D:      {shape_2d[0]:,} obs × {shape_2d[1]:,} features "
+                          f"({matriz_2d.get('archivo_mb', 0):.1f} MB)")
+
+                # Tensor 3D
+                tensor_3d = res.get('tensor_3d', {})
+                shape_3d = tensor_3d.get('shape', (0,0,0))
+                seq_len = tensor_3d.get('seq_length', 0)
+                logger.info(f"    Tensor 3D:      {shape_3d[0]:,} seq × {seq_len} len × {shape_3d[2]:,} features "
+                          f"({tensor_3d.get('archivo_mb', 0):.1f} MB)")
+
+                # Normalización
+                norm = res.get('normalizacion', {})
+                if norm.get('exito'):
+                    window = norm.get('window', 0)
+                    logger.info(f"    Normalización:  Z-score + Rank (window={window})")
+
+        # ============================================================
+        # SECCIÓN 5: LOGS CAPTURADOS
+        # ============================================================
+        logger.info(f"\n5. LOGS CAPTURADOS (ERRORES, WARNINGS, ANOMALÍAS)")
+        logger.info("-" * 100)
+
+        total_logs = len(log_capture.errors) + len(log_capture.warnings) + len(log_capture.info_logs)
+
+        if total_logs == 0:
+            logger.info("  ✓ No se detectaron errores, warnings ni anomalías")
         else:
-            logger.info(f"⚠️  PROCESAMIENTO COMPLETADO CON ERRORES")
-            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            if log_capture.errors:
+                logger.info(f"\n  ERRORES ({len(log_capture.errors)}):")
+                for i, error in enumerate(log_capture.errors[:10], 1):  # Mostrar máximo 10
+                    logger.info(f"    [{error['timestamp']}] {error['mensaje']}")
+                    logger.info(f"                   → {error['modulo']}:{error['linea']}")
+                if len(log_capture.errors) > 10:
+                    logger.info(f"    ... y {len(log_capture.errors) - 10} errores más")
 
-        logger.info(f"{'='*80}")
+            if log_capture.warnings:
+                logger.info(f"\n  WARNINGS ({len(log_capture.warnings)}):")
+                for i, warn in enumerate(log_capture.warnings[:10], 1):
+                    logger.info(f"    [{warn['timestamp']}] {warn['mensaje']}")
+                if len(log_capture.warnings) > 10:
+                    logger.info(f"    ... y {len(log_capture.warnings) - 10} warnings más")
+
+            if log_capture.info_logs:
+                logger.info(f"\n  ANOMALÍAS DETECTADAS EN INFO ({len(log_capture.info_logs)}):")
+                for i, info in enumerate(log_capture.info_logs[:10], 1):
+                    logger.info(f"    [{info['timestamp']}] {info['mensaje']}")
+                if len(log_capture.info_logs) > 10:
+                    logger.info(f"    ... y {len(log_capture.info_logs) - 10} más")
+
+        # ============================================================
+        # SECCIÓN 6: ARCHIVOS GENERADOS
+        # ============================================================
+        logger.info(f"\n6. ARCHIVOS GENERADOS")
+        logger.info("-" * 100)
+        logger.info(f"  Directorio base:     {self.output_dir}")
+        logger.info(f"\n  Subdirectorios:")
+        logger.info(f"    - Matrices 2D:      {self.matriz_2d_dir}")
+
+        archivos_2d = list(self.matriz_2d_dir.glob("*.npz"))
+        if archivos_2d:
+            tamaño_2d = sum(f.stat().st_size for f in archivos_2d) / (1024**2)
+            logger.info(f"                        {len(archivos_2d)} archivos, {tamaño_2d:.1f} MB")
+
+        logger.info(f"    - Tensores 3D:      {self.tensor_3d_dir}")
+        archivos_3d = list(self.tensor_3d_dir.glob("*.npz"))
+        if archivos_3d:
+            tamaño_3d = sum(f.stat().st_size for f in archivos_3d) / (1024**2)
+            logger.info(f"                        {len(archivos_3d)} archivos, {tamaño_3d:.1f} MB")
+
+        logger.info(f"    - Normalización:    {self.normalizacion_dir}")
+        archivos_norm = list(self.normalizacion_dir.glob("*.parquet"))
+        if archivos_norm:
+            tamaño_norm = sum(f.stat().st_size for f in archivos_norm) / (1024**2)
+            logger.info(f"                        {len(archivos_norm)} archivos, {tamaño_norm:.1f} MB")
+
+        # ============================================================
+        # SECCIÓN 7: CONCLUSIÓN
+        # ============================================================
+        logger.info(f"\n7. CONCLUSIÓN")
+        logger.info("-" * 100)
+
+        if exitosos == len(self.pares):
+            logger.info(f"  ✓ ESTRUCTURA MATRICIAL/TENSORIAL COMPLETADA EXITOSAMENTE")
+            logger.info(f"  Todos los {len(self.pares)} pares procesados correctamente")
+            logger.info(f"\n  Estructuras generadas:")
+            logger.info(f"    • Matrices 2D:     Para ML tradicional (RF, XGBoost, etc.)")
+            logger.info(f"    • Tensores 3D:     Para modelos secuenciales (LSTM, GRU)")
+            logger.info(f"    • Normalización:   Z-score + Rank rolling (point-in-time)")
+            logger.info(f"\n  Próximos pasos:")
+            logger.info(f"    1. ejecutar_metodos_estadisticos_clasicos.py → Análisis estadístico")
+            logger.info(f"    2. ejecutar_analisis_multimetodo.py          → ML + Deep Learning")
+            logger.info(f"    3. ejecutar_consenso_metodos.py              → Consenso de features")
+            logger.info(f"    4. ejecutar_validacion_rigurosa.py           → Walk-Forward + Bootstrap")
+            logger.info(f"    5. ejecutar_estrategia_emergente.py          → Emergencia de reglas")
+            logger.info(f"    6. ejecutar_backtest.py                      → Backtest completo")
+        else:
+            logger.info(f"  ⚠️  PROCESAMIENTO COMPLETADO CON ERRORES")
+            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            logger.info(f"  Revisar logs de errores arriba")
+
+        logger.info("="*100 + "\n")
 
 
 def main():
