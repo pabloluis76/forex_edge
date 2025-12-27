@@ -90,21 +90,37 @@ class LogCapture(logging.Handler):
     """Handler que captura mensajes de logging para el resumen final."""
     def __init__(self):
         super().__init__()
+        self.info_logs = []
         self.warnings = []
         self.errors = []
 
     def emit(self, record):
+        """Captura mensajes INFO, WARNING y ERROR."""
         if record.levelno >= logging.ERROR:
             self.errors.append({
                 'mensaje': record.getMessage(),
                 'modulo': record.module,
-                'linea': record.lineno
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
         elif record.levelno == logging.WARNING:
             self.warnings.append({
                 'mensaje': record.getMessage(),
-                'modulo': record.module
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO que contengan palabras clave de interés
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
 
 # Configurar logging
 logging.basicConfig(
@@ -115,7 +131,7 @@ logger = logging.getLogger(__name__)
 
 # Agregar capturador de logs
 log_capture = LogCapture()
-log_capture.setLevel(logging.WARNING)
+log_capture.setLevel(logging.INFO)  # Capturar desde INFO en adelante
 logging.getLogger().addHandler(log_capture)
 
 
@@ -796,148 +812,274 @@ class EjecutorConsensoMetodos:
         """Imprime resumen final detallado."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        print("\n" + "="*80)
-        print("RESUMEN FINAL - CONSENSO DE MÉTODOS")
-        print("="*80)
+        print(f"\n{'='*100}")
+        print(f"{'RESUMEN FINAL - CONSENSO DE MÉTODOS':^100}")
+        print(f"{'='*100}")
 
-        # Información temporal
-        print(f"\nInicio:    {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Fin:       {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Duración:  {self._formatear_duracion(tiempo_total)}")
-
-        # Tabla de resultados
-        print(f"\n{'─'*80}")
-        print("RESULTADOS POR PAR")
-        print(f"{'─'*80}")
-        print(f"{'Par':<10} │ {'Estado':<8} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Aprobados':<10} │ {'Tiempo':<10}")
-        print("─" * 80)
-
+        # Recopilar estadísticas
         exitosos = 0
         total_aprobados = 0
         total_fuerte = 0
         total_medio = 0
+        total_sin_consenso = 0
+
+        for res in self.resultados.values():
+            if res['exito']:
+                exitosos += 1
+                total_fuerte += res['consenso']['tabla']['n_fuerte']
+                total_medio += res['consenso']['tabla']['n_medio']
+                total_sin_consenso += res['consenso']['tabla']['n_sin_consenso']
+                total_aprobados += res['consenso']['proceso']['n_aprobados']
+
+        # ============================================================
+        # RESUMEN EJECUTIVO
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'1. RESUMEN EJECUTIVO':^100}")
+        print(f"{'─'*100}")
+
+        print(f"\n  Timeframe:                     {self.timeframe}")
+        print(f"  Pares Procesados:              {exitosos}/{len(self.pares)}")
+
+        if exitosos > 0:
+            # Métricas de consenso
+            aprobados_por_par = [res['consenso']['proceso']['n_aprobados']
+                                for res in self.resultados.values() if res['exito']]
+            fuerte_por_par = [res['consenso']['tabla']['n_fuerte']
+                             for res in self.resultados.values() if res['exito']]
+
+            print(f"\n  🎯 CONSENSO FUERTE (≥5 métodos):")
+            print(f"     Total features:             {total_fuerte:,}")
+            print(f"     Promedio por par:           {np.mean(fuerte_por_par):.1f}")
+            print(f"     Rango:                      {np.min(fuerte_por_par):.0f} - {np.max(fuerte_por_par):.0f}")
+
+            print(f"\n  📊 CONSENSO MEDIO (3-4 métodos):")
+            medio_por_par = [res['consenso']['tabla']['n_medio']
+                           for res in self.resultados.values() if res['exito']]
+            print(f"     Total features:             {total_medio:,}")
+            print(f"     Promedio por par:           {np.mean(medio_por_par):.1f}")
+
+            print(f"\n  ✅ FEATURES APROBADOS:")
+            print(f"     Total:                      {total_aprobados:,}")
+            print(f"     Promedio por par:           {np.mean(aprobados_por_par):.1f}")
+            print(f"     Tasa aprobación:            {total_aprobados/(total_fuerte+total_medio+total_sin_consenso)*100 if (total_fuerte+total_medio+total_sin_consenso) > 0 else 0:.1f}%")
+
+            # Mejor productor
+            if aprobados_por_par:
+                mejor_idx = np.argmax(aprobados_por_par)
+                peor_idx = np.argmin(aprobados_por_par)
+                pares_exitosos = [p for p, r in self.resultados.items() if r['exito']]
+                mejor_par = pares_exitosos[mejor_idx] if mejor_idx < len(pares_exitosos) else 'N/A'
+                peor_par = pares_exitosos[peor_idx] if peor_idx < len(pares_exitosos) else 'N/A'
+
+                print(f"\n  🏆 MEJOR CONSENSO:             {mejor_par} ({aprobados_por_par[mejor_idx]:.0f} features aprobados)")
+                print(f"  📊 MENOR CONSENSO:             {peor_par} ({aprobados_por_par[peor_idx]:.0f} features aprobados)")
+
+        # Información temporal
+        print(f"\n  ⏱️  TIEMPO DE EJECUCIÓN:")
+        print(f"     Inicio:                     {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"     Fin:                        {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"     Duración Total:             {self._formatear_duracion(tiempo_total)}")
+        print(f"     Tiempo Promedio/Par:        {self._formatear_duracion(tiempo_total/len(self.pares))}")
+
+        # ============================================================
+        # TABLA DE RESULTADOS COMPLETA
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        print(f"{'─'*100}")
+        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Sin Cons.':<11} │ {'Aprobados':<11} │ {'Tasa%':<7} │ {'Tiempo':<10}")
+        print("─" * 100)
 
         for par in self.pares:
             res = self.resultados[par]
 
             if res['exito']:
-                exitosos += 1
                 n_fuerte = res['consenso']['tabla']['n_fuerte']
                 n_medio = res['consenso']['tabla']['n_medio']
+                n_sin = res['consenso']['tabla']['n_sin_consenso']
                 n_aprobados = res['consenso']['proceso']['n_aprobados']
-                total_aprobados += n_aprobados
-                total_fuerte += n_fuerte
-                total_medio += n_medio
+                total_par = n_fuerte + n_medio + n_sin
+                tasa = (n_aprobados / total_par * 100) if total_par > 0 else 0
 
                 print(
-                    f"{par:<10} │ {'✓ OK':<8} │ {n_fuerte:<8} │ {n_medio:<8} │ "
-                    f"{n_aprobados:<10} │ {res['tiempo_segundos']:<10.1f}s"
+                    f"{par:<10} │ {'✓':<3} │ {n_fuerte:>7,} │ {n_medio:>7,} │ "
+                    f"{n_sin:>10,} │ {n_aprobados:>10,} │ {tasa:>6.1f} │ {res['tiempo_segundos']:>9.1f}s"
                 )
             else:
                 print(
-                    f"{par:<10} │ {'✗ ERROR':<8} │ {'N/A':<8} │ {'N/A':<8} │ "
-                    f"{'N/A':<10} │ {res['tiempo_segundos']:<10.1f}s"
+                    f"{par:<10} │ {'✗':<3} │ {'N/A':<8} │ {'N/A':<8} │ {'N/A':<11} │ "
+                    f"{'N/A':<11} │ {'N/A':<7} │ {res['tiempo_segundos']:>9.1f}s"
                 )
+                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
 
-        print("─" * 80)
+        print("─" * 100)
 
-        # Estadísticas globales
-        print(f"\n{'─'*80}")
-        print("ESTADÍSTICAS GLOBALES")
-        print(f"{'─'*80}")
-        print(f"  Pares procesados:              {exitosos}/{len(self.pares)}")
-        print(f"  Tasa de éxito:                 {exitosos/len(self.pares)*100:.1f}%")
-        print(f"  Features consenso fuerte:      {total_fuerte}")
-        print(f"  Features consenso medio:       {total_medio}")
-        print(f"  Features aprobados:            {total_aprobados}")
+        # ============================================================
+        # MÉTRICAS DETALLADAS POR PAR
+        # ============================================================
         if exitosos > 0:
-            print(f"  Promedio aprobados/par:        {total_aprobados/exitosos:.0f}")
-        print(f"  Tiempo total:                  {self._formatear_duracion(tiempo_total)}")
-        print(f"  Tiempo promedio/par:           {tiempo_total/len(self.pares):.1f}s")
+            print(f"\n{'─'*100}")
+            print(f"{'3. MÉTRICAS DETALLADAS POR PAR':^100}")
+            print(f"{'─'*100}")
 
-        # Detalles por par
-        print(f"\n{'─'*80}")
-        print("MÉTRICAS DETALLADAS POR PAR")
-        print(f"{'─'*80}")
+            for idx, par in enumerate(self.pares, 1):
+                res = self.resultados[par]
 
-        for par in self.pares:
-            res = self.resultados[par]
-            if res['exito']:
-                print(f"\n{par}:")
+                if not res['exito']:
+                    print(f"\n  [{idx}] {par}: ✗ ERROR")
+                    print(f"      └─ {res.get('error', 'Desconocido')}")
+                    continue
+
+                print(f"\n  [{idx}] {par}")
+                print(f"  {'─'*96}")
 
                 # Consenso Tabla
                 tabla = res['consenso']['tabla']
-                print(f"  Consenso Tabla:")
-                print(f"    • Fuerte (≥5 métodos):     {tabla['n_fuerte']}")
-                print(f"    • Medio (3-4 métodos):     {tabla['n_medio']}")
-                print(f"    • Sin consenso (≤2):       {tabla['n_sin_consenso']}")
+                total_features = tabla['n_fuerte'] + tabla['n_medio'] + tabla['n_sin_consenso']
+
+                print(f"    📊 CONSENSO POR NIVEL:")
+                print(f"       Fuerte (≥5 métodos):      {tabla['n_fuerte']:,}  ({tabla['n_fuerte']/total_features*100 if total_features > 0 else 0:.1f}%)")
+                print(f"       Medio (3-4 métodos):      {tabla['n_medio']:,}  ({tabla['n_medio']/total_features*100 if total_features > 0 else 0:.1f}%)")
+                print(f"       Sin consenso (≤2):        {tabla['n_sin_consenso']:,}  ({tabla['n_sin_consenso']/total_features*100 if total_features > 0 else 0:.1f}%)")
+                print(f"       Total features:           {total_features:,}")
 
                 # Consenso Proceso
                 proceso = res['consenso']['proceso']
-                print(f"  Verificación Cruzada:")
-                print(f"    • Features verificados:    {proceso.get('n_verificados', 0)}")
-                print(f"    • Features aprobados:      {proceso['n_aprobados']}")
-                print(f"    • Tasa aprobación:         {proceso.get('tasa_aprobacion', 0)*100:.1f}%")
+                n_verificados = proceso.get('n_verificados', 0)
+                n_aprobados = proceso['n_aprobados']
+                tasa_aprob = proceso.get('tasa_aprobacion', 0)
+
+                print(f"\n    ✅ VERIFICACIÓN CRUZADA:")
+                print(f"       Features verificados:     {n_verificados:,}")
+                print(f"       Features aprobados:       {n_aprobados:,}")
+                print(f"       Tasa aprobación:          {tasa_aprob*100:.1f}%")
+
+                # Rating de calidad
+                if tasa_aprob > 0.8:
+                    calidad = "🏆 Excelente"
+                elif tasa_aprob > 0.6:
+                    calidad = "✅ Buena"
+                elif tasa_aprob > 0.4:
+                    calidad = "📊 Aceptable"
+                else:
+                    calidad = "⚠️ Baja"
+                print(f"       Calidad consenso:         {calidad}")
 
                 # Rankings por método
                 if 'rankings' in res['consenso']['proceso']:
                     rankings = res['consenso']['proceso']['rankings']
-                    print(f"  Métodos ejecutados:")
-                    for metodo, features in rankings.items():
+                    print(f"\n    🔬 MÉTODOS EJECUTADOS:")
+                    for metodo, features in sorted(rankings.items(), key=lambda x: len(x[1]) if isinstance(x[1], list) else 0, reverse=True):
                         if isinstance(features, list):
-                            print(f"    • {metodo:<20}: {len(features)} features")
+                            print(f"       • {metodo:<25} {len(features):>4} features")
 
-        # Logs capturados
-        if log_capture.warnings or log_capture.errors:
-            print(f"\n{'─'*80}")
-            print("LOGS CAPTURADOS")
-            print(f"{'─'*80}")
+        # ============================================================
+        # LOGS CAPTURADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'4. LOGS CAPTURADOS DURANTE LA EJECUCIÓN':^100}")
+        print(f"{'─'*100}")
 
-            print(f"  Total warnings:  {len(log_capture.warnings)}")
-            print(f"  Total errors:    {len(log_capture.errors)}")
+        total_logs = len(log_capture.info_logs) + len(log_capture.warnings) + len(log_capture.errors)
 
-            # Mostrar warnings
+        if total_logs == 0:
+            print(f"\n✓ No se detectaron anomalías, warnings o errores durante la ejecución")
+        else:
+            print(f"\nTotal de eventos registrados: {total_logs}")
+
+            # INFO LOGS (anomalías menores)
+            if log_capture.info_logs:
+                print(f"\n📋 INFORMACIÓN RELEVANTE ({len(log_capture.info_logs)}):")
+                print("-" * 80)
+                for i, info in enumerate(log_capture.info_logs, 1):
+                    print(f"{i:3d}. [{info['timestamp']}] [{info['modulo']}]")
+                    print(f"     {info['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron mensajes informativos de interés")
+
+            # WARNINGS
             if log_capture.warnings:
-                print(f"\n  Últimos warnings (máx 10):")
-                for w in log_capture.warnings[-10:]:
-                    print(f"    ⚠ [{w['modulo']}] {w['mensaje'][:70]}")
+                print(f"\n⚠️  ADVERTENCIAS ({len(log_capture.warnings)}):")
+                print("-" * 80)
+                for i, warn in enumerate(log_capture.warnings, 1):
+                    print(f"{i:3d}. [{warn['timestamp']}] [{warn['modulo']}]")
+                    print(f"     {warn['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron advertencias")
 
-            # Mostrar errores
+            # ERRORS
             if log_capture.errors:
-                print(f"\n  Errores encontrados:")
-                for e in log_capture.errors:
-                    print(f"    ✗ [{e['modulo']}:{e['linea']}] {e['mensaje'][:65]}")
+                print(f"\n❌ ERRORES ({len(log_capture.errors)}):")
+                print("-" * 80)
+                for i, error in enumerate(log_capture.errors, 1):
+                    print(f"{i:3d}. [{error['timestamp']}] [{error['modulo']}:{error['linea']}]")
+                    print(f"     {error['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron errores")
 
-        # Archivos generados
-        print(f"\n{'─'*80}")
-        print("ARCHIVOS GENERADOS")
-        print(f"{'─'*80}")
+        print(f"{'─'*100}")
+
+        # ============================================================
+        # ARCHIVOS GENERADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'5. ARCHIVOS GENERADOS':^100}")
+        print(f"{'─'*100}")
+
         archivos_csv = list(self.output_dir.glob("*.csv"))
         archivos_json = list(self.output_dir.glob("*.json"))
-        print(f"  Archivos CSV:   {len(archivos_csv)}")
-        print(f"  Archivos JSON:  {len(archivos_json)}")
-        print(f"  Ubicación:      {self.output_dir}")
+        total_archivos = len(archivos_csv) + len(archivos_json)
 
-        # Estado final
-        print(f"\n{'='*80}")
+        print(f"\n  Total de archivos generados: {total_archivos}")
+        print(f"\n  📊 CSV (consenso final):      {len(archivos_csv):3d} archivos")
+        print(f"  📈 JSON (detalles):           {len(archivos_json):3d} archivos")
+        print(f"\n  📁 Ubicación base: {self.output_dir}")
+
+        # ============================================================
+        # CONCLUSIÓN Y PRÓXIMOS PASOS
+        # ============================================================
+        print(f"\n{'='*100}")
+        print(f"{'CONCLUSIÓN':^100}")
+        print(f"{'='*100}")
+
         if exitosos == len(self.pares):
-            print("✓ CONSENSO COMPLETADO EXITOSAMENTE")
-            print(f"  {exitosos}/{len(self.pares)} pares procesados correctamente")
-            print(f"  {total_aprobados} features aprobados con evidencia convergente")
-            print(f"\nPRÓXIMOS PASOS:")
-            print("  1. Revisar features aprobados: {output_dir}/*_consenso_final.csv")
-            print("  2. Validación rigurosa: python ejecutar_validacion_rigurosa.py")
-            print("  3. Generar estrategias: python ejecutar_estrategia_emergente.py")
-        elif exitosos > 0:
-            print("⚠ CONSENSO COMPLETADO CON ERRORES PARCIALES")
-            print(f"  {exitosos}/{len(self.pares)} pares exitosos")
-            print(f"  Revisar errores arriba para pares fallidos")
-        else:
-            print("✗ CONSENSO FALLIDO")
-            print(f"  Ningún par pudo ser procesado")
-            print(f"  Revisar errores arriba")
+            print(f"\n  ✅ CONSENSO COMPLETADO EXITOSAMENTE")
+            print(f"\n  Resumen:")
+            print(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            print(f"     • Features aprobados:       {total_aprobados:,}")
+            print(f"     • Consenso fuerte:          {total_fuerte:,}")
+            print(f"     • Consenso medio:           {total_medio:,}")
 
-        print("="*80 + "\n")
+            print(f"\n  📋 PRÓXIMOS PASOS:")
+            print(f"     1. Revisar features aprobados:")
+            print(f"        → {self.output_dir}/*_consenso_final.csv")
+            print(f"     2. Ejecutar validación rigurosa:")
+            print(f"        → python ejecutar_validacion_rigurosa.py")
+            print(f"     3. Generar estrategias emergentes:")
+            print(f"        → python ejecutar_estrategia_emergente.py")
+
+        elif exitosos > 0:
+            print(f"\n  ⚠️  CONSENSO COMPLETADO CON ERRORES PARCIALES")
+            print(f"\n  Resumen:")
+            print(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
+            print(f"     • Pares con errores:        {len(self.pares) - exitosos}")
+
+            print(f"\n  📋 ACCIÓN REQUERIDA:")
+            print(f"     1. Revisar logs de errores en sección 4")
+            print(f"     2. Corregir problemas en pares fallidos")
+
+        else:
+            print(f"\n  ❌ CONSENSO FALLIDO")
+            print(f"\n  📋 ACCIÓN CRÍTICA REQUERIDA:")
+            print(f"     1. Revisar logs detallados en sección 4")
+            print(f"     2. Verificar datos de entrada")
+
+        print(f"\n  {'─'*96}")
+        print(f"  ℹ️  NOTA:")
+        print(f"     El consenso identifica features con evidencia convergente.")
+        print(f"     Solo features con ≥3 métodos en acuerdo pasan al siguiente paso.")
+        print(f"{'='*100}\n")
 
     def _formatear_duracion(self, segundos: float) -> str:
         """Formatea duración en formato legible."""

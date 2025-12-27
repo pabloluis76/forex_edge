@@ -99,21 +99,37 @@ class LogCapture(logging.Handler):
     """Handler que captura mensajes de logging para el resumen final."""
     def __init__(self):
         super().__init__()
+        self.info_logs = []
         self.warnings = []
         self.errors = []
 
     def emit(self, record):
+        """Captura mensajes INFO, WARNING y ERROR."""
         if record.levelno >= logging.ERROR:
             self.errors.append({
                 'mensaje': record.getMessage(),
                 'modulo': record.module,
-                'linea': record.lineno
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
         elif record.levelno == logging.WARNING:
             self.warnings.append({
                 'mensaje': record.getMessage(),
-                'modulo': record.module
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO que contengan palabras clave de interés
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
 
 # Configurar logging
 logging.basicConfig(
@@ -124,7 +140,7 @@ logger = logging.getLogger(__name__)
 
 # Agregar capturador de logs
 log_capture = LogCapture()
-log_capture.setLevel(logging.WARNING)  # Capturar WARNING y ERROR
+log_capture.setLevel(logging.INFO)  # Capturar desde INFO en adelante
 logging.getLogger().addHandler(log_capture)
 
 
@@ -1075,53 +1091,91 @@ class EjecutorAnalisisMultimetodo:
         """Imprime resumen final detallado del análisis."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        print("\n" + "="*80)
-        print("RESUMEN FINAL - ANÁLISIS MULTI-MÉTODO")
-        print("="*80)
+        print(f"\n{'='*100}")
+        print(f"{'RESUMEN FINAL - ANÁLISIS MULTI-MÉTODO':^100}")
+        print(f"{'='*100}")
 
-        # Información general
-        print(f"\nInicio:    {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Fin:       {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Duración:  {self._formatear_duracion(tiempo_total)}")
+        # Recopilar estadísticas
+        exitosos = sum(1 for r in self.resultados.values() if r['exito'])
+        total_features = sum(r['n_features'] for r in self.resultados.values() if r['exito'])
 
-        # Tabla de resultados por par
-        print(f"\n{'─'*80}")
-        print("RESULTADOS POR PAR")
-        print(f"{'─'*80}")
-        print(f"{'Par':<10} │ {'Estado':<8} │ {'Features':<10} │ {'IC Sig.':<10} │ {'R² RF':<10} │ {'Tiempo':<10}")
-        print("─" * 80)
+        # ============================================================
+        # RESUMEN EJECUTIVO
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'1. RESUMEN EJECUTIVO':^100}")
+        print(f"{'─'*100}")
 
-        exitosos = 0
-        total_features = 0
-        total_ic_sig = 0
+        print(f"\n  Timeframe:                     {self.timeframe}")
+        print(f"  Pares Procesados:              {exitosos}/{len(self.pares)}")
+
+        if exitosos > 0:
+            # Features analizados
+            features_por_par = [r['n_features'] for r in self.resultados.values() if r['exito']]
+            print(f"\n  📊 FEATURES ANALIZADOS:")
+            print(f"     Total:                      {total_features:,}")
+            print(f"     Promedio por par:           {np.mean(features_por_par):.0f}")
+            print(f"     Rango:                      {np.min(features_por_par):,.0f} - {np.max(features_por_par):,.0f}")
+
+            # IC significativos
+            ic_sig_por_par = [r['analisis']['estadistico']['n_features_significativos_ic']
+                             for r in self.resultados.values()
+                             if r['exito'] and 'estadistico' in r['analisis']]
+            total_ic_sig = sum(ic_sig_por_par)
+
+            print(f"\n  🎯 IC SIGNIFICATIVOS:")
+            print(f"     Total:                      {total_ic_sig:,}")
+            print(f"     Promedio por par:           {np.mean(ic_sig_por_par):.0f}")
+            print(f"     Tasa:                       {total_ic_sig/total_features*100 if total_features > 0 else 0:.1f}%")
+
+        # Información temporal
+        print(f"\n  ⏱️  TIEMPO DE EJECUCIÓN:")
+        print(f"     Inicio:                     {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"     Fin:                        {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"     Duración Total:             {self._formatear_duracion(tiempo_total)}")
+        print(f"     Tiempo Promedio/Par:        {self._formatear_duracion(tiempo_total/len(self.pares))}")
+
+        # ============================================================
+        # TABLA DE RESULTADOS COMPLETA
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        print(f"{'─'*100}")
+        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Features':<10} │ {'IC Sig.':<9} │ {'R² RF':<8} │ {'R² GB':<8} │ {'IC Max':<8} │ {'Tiempo':<10}")
+        print("─" * 100)
 
         for par in self.pares:
             res = self.resultados[par]
 
             if res['exito']:
-                exitosos += 1
-                total_features += res['n_features']
                 ic_sig = res['analisis']['estadistico']['n_features_significativos_ic']
-                total_ic_sig += ic_sig
+                ic_max = res['analisis']['estadistico'].get('ic_maximo', 0)
 
-                # R² Random Forest (puede no estar disponible)
+                # R² Random Forest y Gradient Boosting
                 try:
                     r2_rf = res['analisis']['machine_learning']['r2_random_forest']
-                    r2_str = f"{r2_rf:.4f}"
+                    r2_rf_str = f"{r2_rf:>7.4f}"
                 except:
-                    r2_str = "N/A"
+                    r2_rf_str = "N/A     "
+
+                try:
+                    r2_gb = res['analisis']['machine_learning']['r2_gradient_boosting']
+                    r2_gb_str = f"{r2_gb:>7.4f}"
+                except:
+                    r2_gb_str = "N/A     "
 
                 print(
-                    f"{par:<10} │ {'✓ OK':<8} │ {res['n_features']:<10,} │ "
-                    f"{ic_sig:<10,} │ {r2_str:<10} │ {res['tiempo_segundos']:<10.1f}s"
+                    f"{par:<10} │ {'✓':<3} │ {res['n_features']:>9,} │ "
+                    f"{ic_sig:>8,} │ {r2_rf_str} │ {r2_gb_str} │ {ic_max:>7.4f} │ {res['tiempo_segundos']:>9.1f}s"
                 )
             else:
                 print(
-                    f"{par:<10} │ {'✗ ERROR':<8} │ {'N/A':<10} │ {'N/A':<10} │ "
-                    f"{'N/A':<10} │ {res['tiempo_segundos']:<10.1f}s"
+                    f"{par:<10} │ {'✗':<3} │ {'N/A':<10} │ {'N/A':<9} │ "
+                    f"{'N/A':<8} │ {'N/A':<8} │ {'N/A':<8} │ {res['tiempo_segundos']:>9.1f}s"
                 )
+                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
 
-        print("─" * 80)
+        print("─" * 100)
 
         # Estadísticas agregadas
         print(f"\n{'─'*80}")
@@ -1186,57 +1240,102 @@ class EjecutorAnalisisMultimetodo:
                         if 'lstm' in dl and 'error' not in dl['lstm']:
                             print(f"    • LSTM R² test:        {dl['lstm'].get('r2_test', 0):.6f}")
 
-        # Logs capturados (warnings y errores)
-        if log_capture.warnings or log_capture.errors:
-            print(f"\n{'─'*80}")
-            print("LOGS CAPTURADOS")
-            print(f"{'─'*80}")
+        # ============================================================
+        # LOGS CAPTURADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'3. LOGS CAPTURADOS DURANTE LA EJECUCIÓN':^100}")
+        print(f"{'─'*100}")
 
-            print(f"  Total warnings:  {len(log_capture.warnings)}")
-            print(f"  Total errors:    {len(log_capture.errors)}")
+        total_logs = len(log_capture.info_logs) + len(log_capture.warnings) + len(log_capture.errors)
 
-            # Mostrar warnings importantes (últimos 10)
+        if total_logs == 0:
+            print(f"\n✓ No se detectaron anomalías, warnings o errores durante la ejecución")
+        else:
+            print(f"\nTotal de eventos registrados: {total_logs}")
+
+            # INFO LOGS (anomalías menores)
+            if log_capture.info_logs:
+                print(f"\n📋 INFORMACIÓN RELEVANTE ({len(log_capture.info_logs)}):")
+                print("-" * 80)
+                for i, info in enumerate(log_capture.info_logs, 1):
+                    print(f"{i:3d}. [{info['timestamp']}] [{info['modulo']}]")
+                    print(f"     {info['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron mensajes informativos de interés")
+
+            # WARNINGS
             if log_capture.warnings:
-                print(f"\n  Últimos warnings:")
-                for w in log_capture.warnings[-10:]:
-                    print(f"    ⚠ [{w['modulo']}] {w['mensaje'][:70]}")
+                print(f"\n⚠️  ADVERTENCIAS ({len(log_capture.warnings)}):")
+                print("-" * 80)
+                for i, warn in enumerate(log_capture.warnings, 1):
+                    print(f"{i:3d}. [{warn['timestamp']}] [{warn['modulo']}]")
+                    print(f"     {warn['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron advertencias")
 
-            # Mostrar todos los errores
+            # ERRORS
             if log_capture.errors:
-                print(f"\n  Errores encontrados:")
-                for e in log_capture.errors:
-                    print(f"    ✗ [{e['modulo']}:{e['linea']}] {e['mensaje'][:65]}")
+                print(f"\n❌ ERRORES ({len(log_capture.errors)}):")
+                print("-" * 80)
+                for i, error in enumerate(log_capture.errors, 1):
+                    print(f"{i:3d}. [{error['timestamp']}] [{error['modulo']}:{error['linea']}]")
+                    print(f"     {error['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron errores")
 
-        # Archivos generados
-        print(f"\n{'─'*80}")
-        print("ARCHIVOS GENERADOS")
-        print(f"{'─'*80}")
+        print(f"{'='*80}")
+
+        # ============================================================
+        # ARCHIVOS GENERADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'4. ARCHIVOS GENERADOS':^100}")
+        print(f"{'─'*100}")
+
         archivos_csv = list(self.output_dir.glob("*.csv"))
         archivos_json = list(self.output_dir.glob("*.json"))
-        print(f"  Archivos CSV:   {len(archivos_csv)}")
-        print(f"  Archivos JSON:  {len(archivos_json)}")
-        print(f"  Ubicación:      {self.output_dir}")
+        total_archivos = len(archivos_csv) + len(archivos_json)
 
-        # Estado final
-        print(f"\n{'='*80}")
+        print(f"\n  Total de archivos generados: {total_archivos}")
+        print(f"\n  📊 CSV (rankings):            {len(archivos_csv):3d} archivos")
+        print(f"  📈 JSON (resultados):         {len(archivos_json):3d} archivos")
+        print(f"\n  📁 Ubicación base: {self.output_dir}")
+
+        # ============================================================
+        # CONCLUSIÓN
+        # ============================================================
+        print(f"\n{'='*100}")
+        print(f"{'CONCLUSIÓN':^100}")
+        print(f"{'='*100}")
+
         if exitosos == len(self.pares):
-            print("✓ ANÁLISIS COMPLETADO EXITOSAMENTE")
-            print(f"  {exitosos}/{len(self.pares)} pares analizados correctamente")
-            print(f"  {total_ic_sig:,} features con IC significativo encontrados")
-            print(f"\nPRÓXIMOS PASOS:")
-            print("  1. Revisar features seleccionados en archivos CSV")
-            print("  2. Ejecutar sistema de consenso: python ejecutar_consenso_metodos.py")
-            print("  3. Validación rigurosa: python ejecutar_validacion_rigurosa.py")
-        elif exitosos > 0:
-            print("⚠ ANÁLISIS COMPLETADO CON ERRORES PARCIALES")
-            print(f"  {exitosos}/{len(self.pares)} pares exitosos")
-            print(f"  Revisar errores arriba para pares fallidos")
-        else:
-            print("✗ ANÁLISIS FALLIDO")
-            print(f"  Ningún par pudo ser analizado")
-            print(f"  Revisar errores arriba")
+            print(f"\n  ✅ ANÁLISIS COMPLETADO EXITOSAMENTE")
+            print(f"\n  Resumen:")
+            print(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            print(f"     • Features analizados:      {total_features:,}")
 
-        print("="*80 + "\n")
+            print(f"\n  📋 PRÓXIMOS PASOS:")
+            print(f"     1. Revisar features seleccionados:")
+            print(f"        → {self.output_dir}/*.csv")
+            print(f"     2. Ejecutar sistema de consenso:")
+            print(f"        → python ejecutar_consenso_metodos.py")
+            print(f"     3. Validación rigurosa")
+
+        elif exitosos > 0:
+            print(f"\n  ⚠️  ANÁLISIS COMPLETADO CON ERRORES PARCIALES")
+            print(f"\n  Resumen:")
+            print(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
+            print(f"     • Pares con errores:        {len(self.pares) - exitosos}")
+
+        else:
+            print(f"\n  ❌ ANÁLISIS FALLIDO")
+
+        print(f"\n  {'─'*96}")
+        print(f"  ℹ️  NOTA:")
+        print(f"     Multi-método combina estadística, ML, física y deep learning.")
+        print(f"     Identifica features robustos desde múltiples perspectivas.")
+        print(f"{'='*100}\n")
 
     def _formatear_duracion(self, segundos: float) -> str:
         """Formatea duración en formato legible."""

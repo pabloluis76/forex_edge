@@ -98,22 +98,37 @@ class LogCapture(logging.Handler):
 
     def __init__(self):
         super().__init__()
+        self.info_logs = []
         self.warnings = []
         self.errors = []
 
     def emit(self, record):
-        """Captura mensajes WARNING y ERROR."""
+        """Captura mensajes INFO, WARNING y ERROR."""
         if record.levelno >= logging.ERROR:
             self.errors.append({
                 'mensaje': record.getMessage(),
                 'modulo': record.module,
-                'linea': record.lineno
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
         elif record.levelno == logging.WARNING:
             self.warnings.append({
                 'mensaje': record.getMessage(),
-                'modulo': record.module
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
             })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO que contengan palabras clave de interés
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
 
 
 # Configurar logging
@@ -125,7 +140,7 @@ logger = logging.getLogger(__name__)
 
 # Instanciar y agregar el handler de captura de logs
 log_capture = LogCapture()
-log_capture.setLevel(logging.WARNING)  # Solo capturar WARNING y ERROR
+log_capture.setLevel(logging.INFO)  # Capturar desde INFO en adelante
 logging.getLogger().addHandler(log_capture)
 
 
@@ -683,21 +698,58 @@ class EjecutorValidacionRigurosa:
         """Imprime resumen final detallado con logs capturados."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        logger.info("\n" + "="*80)
-        logger.info("RESUMEN FINAL - VALIDACIÓN RIGUROSA")
-        logger.info("="*80)
+        logger.info("\n" + "="*100)
+        logger.info(f"{'RESUMEN FINAL - VALIDACIÓN RIGUROSA':^100}")
+        logger.info("="*100)
+
+        # ============================================================
+        # RESUMEN EJECUTIVO
+        # ============================================================
+        logger.info("\n" + "─"*100)
+        logger.info(f"{'1. RESUMEN EJECUTIVO':^100}")
+        logger.info("─"*100)
+
+        exitosos = sum(1 for r in self.resultados.values() if r['exito'])
+        aprobados = sum(1 for r in self.resultados.values() if r.get('validacion_final', {}).get('aprobado', False))
+
+        logger.info(f"\n  Timeframe:                     {self.timeframe}")
+        logger.info(f"  Pares Procesados:              {exitosos}/{len(self.pares)}")
+        logger.info(f"  Pares APROBADOS:               {aprobados}/{exitosos} ({aprobados/exitosos*100 if exitosos > 0 else 0:.1f}%)")
+
+        if exitosos > 0:
+            # Recopilar métricas de validaciones
+            n_features_list = [r['n_features'] for r in self.resultados.values() if r['exito']]
+            validaciones_pasadas = [r['validacion_final']['validaciones_pasadas']
+                                   for r in self.resultados.values()
+                                   if r['exito'] and 'validacion_final' in r]
+
+            logger.info(f"\n  📊 FEATURES ANALIZADOS:")
+            logger.info(f"     Total:                      {sum(n_features_list):,}")
+            logger.info(f"     Promedio por par:           {np.mean(n_features_list):.0f}")
+            logger.info(f"     Rango:                      {np.min(n_features_list):,.0f} - {np.max(n_features_list):,.0f}")
+
+            logger.info(f"\n  ✅ VALIDACIONES:")
+            logger.info(f"     Total de pruebas:           4 (Walk-Forward, Bootstrap, Permutation, Robustez)")
+            if validaciones_pasadas:
+                logger.info(f"     Promedio pasadas:           {np.mean(validaciones_pasadas):.1f}/4")
+                logger.info(f"     Pares con 4/4:              {sum(1 for v in validaciones_pasadas if v == 4)}/{len(validaciones_pasadas)}")
+                logger.info(f"     Pares con 3/4:              {sum(1 for v in validaciones_pasadas if v == 3)}/{len(validaciones_pasadas)}")
 
         # Información temporal
-        logger.info("\nINFORMACIÓN TEMPORAL:")
-        logger.info(f"  Inicio: {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"  Fin:    {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"  Duración total: {self._formatear_duracion(tiempo_total)}")
+        logger.info(f"\n  ⏱️  TIEMPO DE EJECUCIÓN:")
+        logger.info(f"     Inicio:                     {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"     Fin:                        {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"     Duración Total:             {self._formatear_duracion(tiempo_total)}")
+        logger.info(f"     Tiempo Promedio/Par:        {self._formatear_duracion(tiempo_total/len(self.pares))}")
 
-        # Tabla de resultados
-        logger.info("\nRESULTADOS POR PAR:")
-        logger.info("-" * 110)
-        logger.info(f"{'Par':<10} │ {'Estado':<6} │ {'WF':<4} │ {'Boot':<4} │ {'Perm':<4} │ {'Rob':<4} │ {'Aprobado':<10} │ {'Tiempo':<12}")
-        logger.info("-" * 110)
+        # ============================================================
+        # TABLA DE RESULTADOS COMPLETA
+        # ============================================================
+        logger.info("\n" + "─"*100)
+        logger.info(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        logger.info("─"*100)
+        logger.info(f"\n{'Par':<10} │ {'✓':<3} │ {'Feats':<7} │ {'WF':<4} │ {'Boot':<5} │ {'Perm':<5} │ {'Rob':<4} │ {'Pass':<5} │ {'Aprob':<6} │ {'Tiempo':<10}")
+        logger.info("─" * 100)
 
         exitosos = 0
         aprobados = 0
@@ -715,6 +767,7 @@ class EjecutorValidacionRigurosa:
                 perm = '✓' if val['permutation']['significativo'] else '✗'
                 rob = '✓' if val['robustez']['robusto'] else '✗'
                 aprobado = res['validacion_final']['aprobado']
+                n_pasadas = res['validacion_final']['validaciones_pasadas']
 
                 if aprobado:
                     aprobados += 1
@@ -723,130 +776,247 @@ class EjecutorValidacionRigurosa:
                 tiempo_str = self._formatear_duracion(res['tiempo_segundos'])
 
                 logger.info(
-                    f"{par:<10} │ {'✓':<6} │ {wf:<4} │ {boot:<4} │ {perm:<4} │ {rob:<4} │ "
-                    f"{'✓ SÍ' if aprobado else '✗ NO':<10} │ {tiempo_str:<12}"
+                    f"{par:<10} │ {'✓':<3} │ {res['n_features']:>6,} │ {wf:<4} │ {boot:<5} │ "
+                    f"{perm:<5} │ {rob:<4} │ {n_pasadas}/4 {'  '} │ "
+                    f"{'✓':<6 if aprobado else '✗':<6} │ {tiempo_str:<10}"
                 )
             else:
                 tiempo_str = self._formatear_duracion(res['tiempo_segundos'])
                 logger.info(
-                    f"{par:<10} │ {'✗':<6} │ {'N/A':<4} │ {'N/A':<4} │ {'N/A':<4} │ {'N/A':<4} │ "
-                    f"{'N/A':<10} │ {tiempo_str:<12}"
+                    f"{par:<10} │ {'✗':<3} │ {'N/A':<7} │ {'N/A':<4} │ {'N/A':<5} │ "
+                    f"{'N/A':<5} │ {'N/A':<4} │ {'N/A':<7} │ {'N/A':<6} │ {tiempo_str:<10}"
                 )
-                logger.info(f"           Error: {res.get('error', 'Desconocido')}")
+                logger.info(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
 
-        logger.info("-" * 110)
+        logger.info("─" * 100)
 
-        # Estadísticas globales
-        logger.info("\nESTADÍSTICAS GLOBALES:")
-        logger.info(f"  Pares procesados exitosamente: {exitosos}/{len(self.pares)}")
-        logger.info(f"  Pares APROBADOS (≥3/4 validaciones): {aprobados}/{len(self.pares)}")
-        if aprobados > 0:
-            logger.info(f"  Total features validados: {total_features_validados}")
-            logger.info(f"  Promedio features/par validado: {total_features_validados/aprobados:.1f}")
-        logger.info(f"  Tiempo promedio por par: {self._formatear_duracion(tiempo_total/len(self.pares))}")
+        # ============================================================
+        # ANÁLISIS ESTADÍSTICO DE VALIDACIONES
+        # ============================================================
+        if exitosos > 0:
+            logger.info("\n" + "─"*100)
+            logger.info(f"{'3. ANÁLISIS ESTADÍSTICO DE VALIDACIONES':^100}")
+            logger.info("─"*100)
 
-        # Métricas detalladas por par
-        logger.info("\nMÉTRICAS DETALLADAS POR PAR:")
-        for par in self.pares:
+            # Tasas de éxito por validación
+            wf_exitos = sum(1 for r in self.resultados.values()
+                           if r['exito'] and r['validaciones']['walk_forward']['significativo'])
+            boot_exitos = sum(1 for r in self.resultados.values()
+                             if r['exito'] and r['validaciones']['bootstrap']['significativo'])
+            perm_exitos = sum(1 for r in self.resultados.values()
+                             if r['exito'] and r['validaciones']['permutation']['significativo'])
+            rob_exitos = sum(1 for r in self.resultados.values()
+                            if r['exito'] and r['validaciones']['robustez']['robusto'])
+
+            logger.info(f"\n  📊 TASAS DE ÉXITO POR VALIDACIÓN:")
+            logger.info(f"     Walk-Forward:               {wf_exitos}/{exitosos} ({wf_exitos/exitosos*100:.1f}%)")
+            logger.info(f"     Bootstrap:                  {boot_exitos}/{exitosos} ({boot_exitos/exitosos*100:.1f}%)")
+            logger.info(f"     Permutation Test:           {perm_exitos}/{exitosos} ({perm_exitos/exitosos*100:.1f}%)")
+            logger.info(f"     Robustez:                   {rob_exitos}/{exitosos} ({rob_exitos/exitosos*100:.1f}%)")
+
+            # Distribución de validaciones pasadas
+            validaciones_pasadas = [r['validacion_final']['validaciones_pasadas']
+                                   for r in self.resultados.values()
+                                   if r['exito'] and 'validacion_final' in r]
+
+            if validaciones_pasadas:
+                logger.info(f"\n  ✅ DISTRIBUCIÓN DE VALIDACIONES PASADAS:")
+                logger.info(f"     Media:                      {np.mean(validaciones_pasadas):.2f}/4")
+                logger.info(f"     Mediana:                    {np.median(validaciones_pasadas):.0f}/4")
+                logger.info(f"     Pares con 4/4:              {sum(1 for v in validaciones_pasadas if v == 4)}/{len(validaciones_pasadas)}")
+                logger.info(f"     Pares con 3/4:              {sum(1 for v in validaciones_pasadas if v == 3)}/{len(validaciones_pasadas)}")
+                logger.info(f"     Pares con 2/4:              {sum(1 for v in validaciones_pasadas if v == 2)}/{len(validaciones_pasadas)}")
+
+            # Features validados
+            logger.info(f"\n  📈 FEATURES VALIDADOS:")
+            logger.info(f"     Total features aprobados:   {total_features_validados:,}")
+            if aprobados > 0:
+                logger.info(f"     Promedio por par aprobado:  {total_features_validados/aprobados:.1f}")
+            logger.info(f"     Pares aprobados:            {aprobados}/{exitosos} ({aprobados/exitosos*100 if exitosos > 0 else 0:.1f}%)")
+
+        # ============================================================
+        # MÉTRICAS DETALLADAS POR PAR
+        # ============================================================
+        logger.info("\n" + "─"*100)
+        logger.info(f"{'4. MÉTRICAS DETALLADAS POR PAR':^100}")
+        logger.info("─"*100)
+
+        for idx, par in enumerate(self.pares, 1):
             res = self.resultados[par]
 
             if not res['exito']:
+                logger.info(f"\n  [{idx}] {par}: ✗ ERROR")
+                logger.info(f"      └─ {res.get('error', 'Desconocido')}")
                 continue
 
-            logger.info(f"\n  {par}:")
-            logger.info(f"    Features analizados: {res['n_features']}")
-            logger.info(f"    Muestras: {res['n_muestras']:,}")
+            logger.info(f"\n  [{idx}] {par}")
+            logger.info(f"  {'─'*96}")
+
+            logger.info(f"    📊 DATOS:")
+            logger.info(f"       Features analizados:      {res['n_features']:,}")
+            logger.info(f"       Muestras:                 {res['n_muestras']:,}")
 
             val = res['validaciones']
 
             # Walk-Forward
             wf = val['walk_forward']
-            logger.info(f"    Walk-Forward:")
-            logger.info(f"      IC: {wf['ic']:.4f}")
-            logger.info(f"      p-value: {wf['p_value']:.6f}")
-            logger.info(f"      Significativo: {'✓ Sí' if wf['significativo'] else '✗ No'}")
+            wf_status = "✅ APROBADO" if wf['significativo'] else "❌ RECHAZADO"
+            logger.info(f"\n    🔄 WALK-FORWARD VALIDATION:")
+            logger.info(f"       IC:                       {wf['ic']:.4f}")
+            logger.info(f"       p-value:                  {wf['p_value']:.6f}")
+            logger.info(f"       Estado:                   {wf_status}")
 
             # Bootstrap
             boot = val['bootstrap']
-            logger.info(f"    Bootstrap:")
-            logger.info(f"      IC medio: {boot['ic_medio']:.4f}")
-            logger.info(f"      IC 95% CI: [{boot['ic_ci_lower']:.4f}, {boot['ic_ci_upper']:.4f}]")
-            logger.info(f"      Significativo: {'✓ Sí' if boot['significativo'] else '✗ No'}")
+            boot_status = "✅ APROBADO" if boot['significativo'] else "❌ RECHAZADO"
+            ci_width = boot['ic_ci_upper'] - boot['ic_ci_lower']
+            logger.info(f"\n    🎲 BOOTSTRAP (IC 95%):")
+            logger.info(f"       IC medio:                 {boot['ic_medio']:.4f}")
+            logger.info(f"       CI:                       [{boot['ic_ci_lower']:.4f}, {boot['ic_ci_upper']:.4f}]")
+            logger.info(f"       Ancho CI:                 {ci_width:.4f}")
+            logger.info(f"       Estado:                   {boot_status}")
 
             # Permutation
             perm = val['permutation']
-            logger.info(f"    Permutation Test:")
-            logger.info(f"      IC real: {perm['ic_real']:.4f}")
-            logger.info(f"      p-value: {perm['p_value']:.6f}")
-            logger.info(f"      z-score: {perm['z_score']:.2f}")
-            logger.info(f"      Significativo (p < 0.001): {'✓ Sí' if perm['significativo'] else '✗ No'}")
+            perm_status = "✅ APROBADO" if perm['significativo'] else "❌ RECHAZADO"
+            logger.info(f"\n    🔀 PERMUTATION TEST:")
+            logger.info(f"       IC real:                  {perm['ic_real']:.4f}")
+            logger.info(f"       p-value:                  {perm['p_value']:.6f}")
+            logger.info(f"       z-score:                  {perm['z_score']:.2f}")
+            logger.info(f"       Estado (p < 0.001):       {perm_status}")
 
             # Robustez
             rob = val['robustez']
-            logger.info(f"    Robustez:")
-            logger.info(f"      Estabilidad temporal (std IC): {rob['estabilidad_temporal']:.4f}")
-            logger.info(f"      IC positivo todos los años: {'✓ Sí' if rob['todos_positivos'] else '✗ No'}")
-            logger.info(f"      Robusto (std < 0.02 y todos +): {'✓ Sí' if rob['robusto'] else '✗ No'}")
+            rob_status = "✅ ROBUSTO" if rob['robusto'] else "❌ FRÁGIL"
+            logger.info(f"\n    🔬 ANÁLISIS DE ROBUSTEZ:")
+            logger.info(f"       Estabilidad (std IC):     {rob['estabilidad_temporal']:.4f}")
+            logger.info(f"       IC+ todos los años:       {'✓' if rob['todos_positivos'] else '✗'}")
+            logger.info(f"       Estado:                   {rob_status}")
 
             # Evaluación final
             vf = res['validacion_final']
-            logger.info(f"    Evaluación Final:")
-            logger.info(f"      Validaciones pasadas: {vf['validaciones_pasadas']}/{vf['total_validaciones']}")
-            logger.info(f"      APROBADO: {'✓ SÍ' if vf['aprobado'] else '✗ NO'}")
+            aprobado_status = "🏆 APROBADO" if vf['aprobado'] else "⚠️ RECHAZADO"
+            logger.info(f"\n    🎯 EVALUACIÓN FINAL:")
+            logger.info(f"       Validaciones pasadas:     {vf['validaciones_pasadas']}/{vf['total_validaciones']}")
+            logger.info(f"       Criterio:                 ≥3/4 validaciones")
+            logger.info(f"       RESULTADO:                {aprobado_status}")
 
-        # Logs capturados
-        logger.info("\nLOGS CAPTURADOS:")
+        # ============================================================
+        # LOGS CAPTURADOS
+        # ============================================================
+        logger.info("\n" + "─"*100)
+        logger.info(f"{'5. LOGS CAPTURADOS DURANTE LA EJECUCIÓN':^100}")
+        logger.info("─"*100)
 
-        if log_capture.warnings:
-            logger.info(f"\n  ⚠️  WARNINGS ({len(log_capture.warnings)}):")
-            for i, warn in enumerate(log_capture.warnings[:10], 1):  # Mostrar primeros 10
-                logger.info(f"    {i}. [{warn['modulo']}] {warn['mensaje']}")
-            if len(log_capture.warnings) > 10:
-                logger.info(f"    ... y {len(log_capture.warnings) - 10} warnings más")
+        total_logs = len(log_capture.info_logs) + len(log_capture.warnings) + len(log_capture.errors)
+
+        if total_logs == 0:
+            logger.info("\n✓ No se detectaron anomalías, warnings o errores durante la ejecución")
         else:
-            logger.info("  ✓ No se registraron warnings")
+            logger.info(f"\nTotal de eventos registrados: {total_logs}")
 
-        if log_capture.errors:
-            logger.info(f"\n  ❌ ERRORS ({len(log_capture.errors)}):")
-            for i, err in enumerate(log_capture.errors[:10], 1):  # Mostrar primeros 10
-                logger.info(f"    {i}. [{err['modulo']}:{err['linea']}] {err['mensaje']}")
-            if len(log_capture.errors) > 10:
-                logger.info(f"    ... y {len(log_capture.errors) - 10} errors más")
-        else:
-            logger.info("  ✓ No se registraron errores")
+            # INFO LOGS (anomalías menores)
+            if log_capture.info_logs:
+                logger.info(f"\n📋 INFORMACIÓN RELEVANTE ({len(log_capture.info_logs)}):")
+                logger.info("-" * 80)
+                for i, info in enumerate(log_capture.info_logs, 1):
+                    logger.info(f"{i:3d}. [{info['timestamp']}] [{info['modulo']}]")
+                    logger.info(f"     {info['mensaje']}")
+            else:
+                logger.info("\n✓ No se registraron mensajes informativos de interés")
 
-        # Archivos generados
+            # WARNINGS
+            if log_capture.warnings:
+                logger.info(f"\n⚠️  ADVERTENCIAS ({len(log_capture.warnings)}):")
+                logger.info("-" * 80)
+                for i, warn in enumerate(log_capture.warnings, 1):
+                    logger.info(f"{i:3d}. [{warn['timestamp']}] [{warn['modulo']}]")
+                    logger.info(f"     {warn['mensaje']}")
+            else:
+                logger.info("\n✓ No se registraron advertencias")
+
+            # ERRORS
+            if log_capture.errors:
+                logger.info(f"\n❌ ERRORES ({len(log_capture.errors)}):")
+                logger.info("-" * 80)
+                for i, error in enumerate(log_capture.errors, 1):
+                    logger.info(f"{i:3d}. [{error['timestamp']}] [{error['modulo']}:{error['linea']}]")
+                    logger.info(f"     {error['mensaje']}")
+            else:
+                logger.info("\n✓ No se registraron errores")
+
+        logger.info("─"*100)
+
+        # ============================================================
+        # ARCHIVOS GENERADOS
+        # ============================================================
+        logger.info("\n" + "─"*100)
+        logger.info(f"{'6. ARCHIVOS GENERADOS':^100}")
+        logger.info("─"*100)
+
         archivos_json = list(self.output_dir.glob("**/*.json"))
         archivos_csv = list(self.validados_dir.glob("*.csv"))
+        total_archivos = len(archivos_json) + len(archivos_csv)
 
-        logger.info("\nARCHIVOS GENERADOS:")
-        logger.info(f"  JSON (resultados completos): {len(archivos_json)} archivos")
-        logger.info(f"  CSV (features validados): {len(archivos_csv)} archivos")
-        logger.info(f"  Ubicación: {self.output_dir}")
+        logger.info(f"\n  Total de archivos generados: {total_archivos}")
+        logger.info(f"\n  📊 JSON (resultados detallados): {len(archivos_json):3d} archivos")
+        logger.info(f"  ✅ CSV (features validados):     {len(archivos_csv):3d} archivos → {self.validados_dir}/")
+        logger.info(f"\n  📁 Ubicación base: {self.output_dir}")
 
-        # Conclusión
-        logger.info("\n" + "="*80)
+        # ============================================================
+        # CONCLUSIÓN Y PRÓXIMOS PASOS
+        # ============================================================
+        logger.info("\n" + "="*100)
+        logger.info(f"{'CONCLUSIÓN':^100}")
+        logger.info("="*100)
+
         if exitosos == len(self.pares):
-            logger.info("✓ VALIDACIÓN COMPLETADA EXITOSAMENTE")
-            logger.info(f"  Pares APROBADOS: {aprobados}/{len(self.pares)}")
-            logger.info(f"  Features validados totales: {total_features_validados}")
-            logger.info("\nPRÓXIMOS PASOS:")
-            if aprobados > 0:
-                logger.info(f"  1. Revisar features validados en: {self.validados_dir}")
-                logger.info("  2. Construir estrategia final con features robustos")
-                logger.info("  3. Ejecutar backtest completo")
-                logger.info("  4. Evaluar métricas de riesgo/retorno")
-            else:
-                logger.info("  ⚠️  Ningún par pasó todas las validaciones")
-                logger.info("  1. Revisar features generados")
-                logger.info("  2. Ajustar parámetros de consenso")
-                logger.info("  3. Re-ejecutar análisis multi-método")
-        else:
-            logger.info(f"⚠️  VALIDACIÓN COMPLETADA CON ERRORES")
-            logger.info(f"  Pares exitosos: {exitosos}/{len(self.pares)}")
-            logger.info(f"  Revisar errores arriba para diagnóstico")
+            logger.info("\n  ✅ VALIDACIÓN COMPLETADA EXITOSAMENTE")
+            logger.info(f"\n  Resumen:")
+            logger.info(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            logger.info(f"     • Pares APROBADOS:          {aprobados}/{exitosos} ({aprobados/exitosos*100 if exitosos > 0 else 0:.1f}%)")
+            logger.info(f"     • Features validados:       {total_features_validados:,}")
 
-        logger.info("="*80)
+            if aprobados > 0:
+                logger.info(f"\n  📋 PRÓXIMOS PASOS:")
+                logger.info(f"     1. Revisar features validados")
+                logger.info(f"        → Ubicación: {self.validados_dir}/")
+                logger.info(f"     2. Generar estrategias emergentes:")
+                logger.info(f"        → python ejecutar_estrategia_emergente.py")
+                logger.info(f"     3. Ejecutar backtest completo")
+                logger.info(f"     4. Evaluar métricas de riesgo/retorno")
+                logger.info(f"     5. Validar antes de producción")
+            else:
+                logger.info(f"\n  ⚠️  NINGÚN PAR PASÓ TODAS LAS VALIDACIONES")
+                logger.info(f"\n  📋 ACCIÓN REQUERIDA:")
+                logger.info(f"     1. Revisar features generados en consenso")
+                logger.info(f"     2. Ajustar parámetros de consenso si es necesario")
+                logger.info(f"     3. Re-ejecutar análisis multi-método")
+                logger.info(f"     4. Verificar calidad de datos de entrada")
+
+        elif exitosos > 0:
+            logger.info("\n  ⚠️  VALIDACIÓN COMPLETADA CON ERRORES PARCIALES")
+            logger.info(f"\n  Resumen:")
+            logger.info(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
+            logger.info(f"     • Pares con errores:        {len(self.pares) - exitosos}")
+            logger.info(f"     • Pares APROBADOS:          {aprobados}/{exitosos}")
+            logger.info(f"\n  📋 ACCIÓN REQUERIDA:")
+            logger.info(f"     1. Revisar logs de errores en sección 5")
+            logger.info(f"     2. Corregir problemas en pares fallidos")
+            logger.info(f"     3. Re-ejecutar validación completa")
+        else:
+            logger.info("\n  ❌ VALIDACIÓN FALLIDA - TODOS LOS PARES CON ERRORES")
+            logger.info(f"\n  📋 ACCIÓN CRÍTICA REQUERIDA:")
+            logger.info(f"     1. Revisar logs detallados en sección 5")
+            logger.info(f"     2. Verificar integridad de datos de consenso")
+            logger.info(f"     3. Validar configuración de validación")
+
+        logger.info(f"\n  {'─'*96}")
+        logger.info(f"  ℹ️  NOTA IMPORTANTE:")
+        logger.info(f"     Las validaciones rigurosas aseguran que los features tienen poder predictivo REAL.")
+        logger.info(f"     Solo features que pasan ≥3/4 validaciones son considerados robustos.")
+        logger.info(f"     Esto protege contra overfitting y falsos positivos.")
+        logger.info("="*100)
 
     def _formatear_duracion(self, segundos: float) -> str:
         """

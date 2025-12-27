@@ -27,6 +27,44 @@ from estrategia_emergente.interpretacion_post_hoc import InterpretacionPostHoc
 from estrategia_emergente.formulacion_reglas import FormulacionReglas
 
 
+class LogCapture(logging.Handler):
+    """Handler que captura mensajes de logging para el resumen final."""
+
+    def __init__(self):
+        super().__init__()
+        self.info_logs = []
+        self.warnings = []
+        self.errors = []
+
+    def emit(self, record):
+        """Captura mensajes INFO, WARNING y ERROR."""
+        if record.levelno >= logging.ERROR:
+            self.errors.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'linea': record.lineno,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.WARNING:
+            self.warnings.append({
+                'mensaje': record.getMessage(),
+                'modulo': record.module,
+                'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+            })
+        elif record.levelno == logging.INFO:
+            # Solo capturar INFO que contengan palabras clave de interés
+            mensaje = record.getMessage().lower()
+            keywords = ['error', 'fallo', 'fallido', 'advertencia', 'anomal',
+                       'inconsistencia', 'problema', 'no se pudo', 'no encontr',
+                       'vacío', 'insuficiente', 'bajo', 'alto', 'excede']
+            if any(keyword in mensaje for keyword in keywords):
+                self.info_logs.append({
+                    'mensaje': record.getMessage(),
+                    'modulo': record.module,
+                    'timestamp': datetime.fromtimestamp(record.created).strftime('%H:%M:%S')
+                })
+
+
 class EjecutorEstrategiaEmergente:
     """
     Ejecutor del módulo Estrategia Emergente.
@@ -98,6 +136,10 @@ class EjecutorEstrategiaEmergente:
         # Resultados
         self.resultados: Dict[str, dict] = {}
 
+        # Tiempos de ejecución
+        self.tiempo_inicio = None
+        self.tiempo_fin = None
+
         if self.verbose:
             print("="*80)
             print("EJECUTOR: ESTRATEGIA EMERGENTE")
@@ -125,6 +167,12 @@ class EjecutorEstrategiaEmergente:
         )
 
         self.logger = logging.getLogger(__name__)
+
+        # Agregar LogCapture global para capturar todos los logs
+        global log_capture
+        log_capture = LogCapture()
+        log_capture.setLevel(logging.INFO)  # Capturar desde INFO en adelante
+        logging.getLogger().addHandler(log_capture)
 
     def _detectar_pares_disponibles(self) -> List[str]:
         """
@@ -435,7 +483,7 @@ class EjecutorEstrategiaEmergente:
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen de la ejecución."""
+        """Imprime resumen detallado de la ejecución."""
         exitosos = sum(1 for r in self.resultados.values() if r['exito'])
         fallidos = len(self.resultados) - exitosos
 
@@ -443,45 +491,258 @@ class EjecutorEstrategiaEmergente:
         total_reglas_long = sum(r['num_reglas_long'] for r in self.resultados.values() if r['exito'])
         total_reglas_short = sum(r['num_reglas_short'] for r in self.resultados.values() if r['exito'])
 
-        print(f"\n{'='*80}")
-        print(f"RESUMEN DE EJECUCIÓN")
-        print(f"{'='*80}")
-        print(f"\nPares procesados: {len(self.resultados)}")
-        print(f"  ✓ Exitosos: {exitosos}")
-        print(f"  ✗ Fallidos: {fallidos}")
+        print(f"\n{'='*100}")
+        print(f"{'RESUMEN FINAL - ESTRATEGIA EMERGENTE':^100}")
+        print(f"{'='*100}")
+
+        # ============================================================
+        # RESUMEN EJECUTIVO
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'1. RESUMEN EJECUTIVO':^100}")
+        print(f"{'─'*100}")
+
+        print(f"\n  Timeframe:                     {self.timeframe}")
+        print(f"  Pares Procesados:              {exitosos}/{len(self.resultados)}")
 
         if exitosos > 0:
-            print(f"\nEstadísticas:")
-            print(f"  - Total transformaciones validadas: {total_transformaciones}")
-            print(f"  - Total reglas Long: {total_reglas_long}")
-            print(f"  - Total reglas Short: {total_reglas_short}")
-            print(f"  - Promedio transformaciones por par: {total_transformaciones/exitosos:.1f}")
-            print(f"  - Promedio reglas Long por par: {total_reglas_long/exitosos:.1f}")
-            print(f"  - Promedio reglas Short por par: {total_reglas_short/exitosos:.1f}")
+            # Recopilar métricas
+            transformaciones_por_par = [r['num_transformaciones'] for r in self.resultados.values() if r['exito']]
+            reglas_long_por_par = [r['num_reglas_long'] for r in self.resultados.values() if r['exito']]
+            reglas_short_por_par = [r['num_reglas_short'] for r in self.resultados.values() if r['exito']]
 
-        print(f"\nArchivos generados:")
-        print(f"  - Interpretaciones: {self.interpretaciones_dir}/")
-        print(f"  - Estrategias: {self.estrategias_dir}/")
-        print(f"  - Código ejecutable: {self.codigo_dir}/")
-        print(f"  - Resúmenes: {self.resumen_dir}/")
+            print(f"\n  🎯 TRANSFORMACIONES VALIDADAS:")
+            print(f"     Total:                      {total_transformaciones:,}")
+            print(f"     Promedio por par:           {np.mean(transformaciones_por_par):.1f}")
+            print(f"     Mediana:                    {np.median(transformaciones_por_par):.0f}")
+            print(f"     Rango:                      {np.min(transformaciones_por_par):.0f} - {np.max(transformaciones_por_par):.0f}")
 
-        if fallidos > 0:
-            print(f"\n⚠️  Pares con errores:")
-            for par, resultado in self.resultados.items():
-                if not resultado['exito']:
-                    print(f"  - {par}: {resultado['error']}")
+            print(f"\n  📈 REGLAS LONG GENERADAS:")
+            print(f"     Total:                      {total_reglas_long:,}")
+            print(f"     Promedio por par:           {np.mean(reglas_long_por_par):.1f}")
+            print(f"     Pares con reglas Long:      {sum(1 for r in reglas_long_por_par if r > 0)}/{exitosos}")
 
-        print(f"\n{'='*80}")
-        print(f"FILOSOFÍA DEL SISTEMA")
-        print(f"{'='*80}")
-        print(f"\nLAS ESTRATEGIAS EMERGIERON DE LOS DATOS:")
-        print(f"  1. NO predefinimos qué funciona")
-        print(f"  2. Generamos ~1,700 transformaciones sistemáticamente")
-        print(f"  3. Validación rigurosa (Walk-Forward, Permutation, Bootstrap, Robustez)")
-        print(f"  4. Solo transformaciones que PASARON TODOS los filtros")
-        print(f"  5. AHORA interpretamos y formulamos reglas")
-        print(f"\nEstos son edges GENUINOS, no supuestos a priori.")
-        print(f"="*80)
+            print(f"\n  📉 REGLAS SHORT GENERADAS:")
+            print(f"     Total:                      {total_reglas_short:,}")
+            print(f"     Promedio por par:           {np.mean(reglas_short_por_par):.1f}")
+            print(f"     Pares con reglas Short:     {sum(1 for r in reglas_short_por_par if r > 0)}/{exitosos}")
+
+            # Balance de reglas
+            total_reglas = total_reglas_long + total_reglas_short
+            pct_long = (total_reglas_long / total_reglas * 100) if total_reglas > 0 else 0
+            pct_short = (total_reglas_short / total_reglas * 100) if total_reglas > 0 else 0
+
+            print(f"\n  ⚖️  BALANCE DE ESTRATEGIAS:")
+            print(f"     Total reglas:               {total_reglas:,}")
+            print(f"     Long:                       {pct_long:.1f}%")
+            print(f"     Short:                      {pct_short:.1f}%")
+
+            # Mejor y Peor productor de reglas
+            if len(transformaciones_por_par) > 0:
+                mejor_idx = np.argmax(transformaciones_por_par)
+                peor_idx = np.argmin(transformaciones_por_par)
+                pares_exitosos = [p for p, r in self.resultados.items() if r['exito']]
+                mejor_par = pares_exitosos[mejor_idx] if mejor_idx < len(pares_exitosos) else 'N/A'
+                peor_par = pares_exitosos[peor_idx] if peor_idx < len(pares_exitosos) else 'N/A'
+
+                print(f"\n  🏆 MEJOR PRODUCTOR:            {mejor_par} ({transformaciones_por_par[mejor_idx]:.0f} transformaciones)")
+                print(f"  📊 MENOR PRODUCTOR:            {peor_par} ({transformaciones_por_par[peor_idx]:.0f} transformaciones)")
+
+        # ============================================================
+        # TABLA DE RESULTADOS COMPLETA
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        print(f"{'─'*100}")
+        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Transform.':<12} │ {'Reglas Long':<12} │ {'Reglas Short':<13} │ {'Total Reglas':<13} │ {'Archivos':<9}")
+        print("─" * 100)
+
+        for par in self.pares:
+            res = self.resultados[par]
+
+            if res['exito']:
+                n_trans = res['num_transformaciones']
+                n_long = res['num_reglas_long']
+                n_short = res['num_reglas_short']
+                n_total = n_long + n_short
+                n_arch = len(res['archivos_generados'])
+
+                print(
+                    f"{par:<10} │ {'✓':<3} │ {n_trans:>11,} │ "
+                    f"{n_long:>11,} │ {n_short:>12,} │ {n_total:>12,} │ {n_arch:>8}"
+                )
+            else:
+                print(
+                    f"{par:<10} │ {'✗':<3} │ {'N/A':<12} │ {'N/A':<12} │ "
+                    f"{'N/A':<13} │ {'N/A':<13} │ {'N/A':<9}"
+                )
+                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
+
+        print("─" * 100)
+
+        # ============================================================
+        # DETALLE POR PAR
+        # ============================================================
+        if exitosos > 0:
+            print(f"\n{'─'*100}")
+            print(f"{'3. DETALLE POR PAR':^100}")
+            print(f"{'─'*100}")
+
+            for idx, par in enumerate(self.pares, 1):
+                res = self.resultados[par]
+
+                if not res['exito']:
+                    print(f"\n  [{idx}] {par}: ✗ ERROR")
+                    print(f"      └─ {res.get('error', 'Desconocido')}")
+                    continue
+
+                print(f"\n  [{idx}] {par}")
+                print(f"  {'─'*96}")
+
+                print(f"    📊 TRANSFORMACIONES:")
+                print(f"       Validadas:                {res['num_transformaciones']:,}")
+
+                print(f"\n    📈 REGLAS DE ENTRADA:")
+                print(f"       Reglas Long:              {res['num_reglas_long']:,}")
+                print(f"       Reglas Short:             {res['num_reglas_short']:,}")
+                print(f"       Total:                    {res['num_reglas_long'] + res['num_reglas_short']:,}")
+
+                # Balance Long/Short para este par
+                total_par = res['num_reglas_long'] + res['num_reglas_short']
+                if total_par > 0:
+                    pct_long_par = (res['num_reglas_long'] / total_par * 100)
+                    pct_short_par = (res['num_reglas_short'] / total_par * 100)
+                    balance = "Balanceado" if 40 <= pct_long_par <= 60 else "Sesgado Long" if pct_long_par > 60 else "Sesgado Short"
+                    print(f"       Balance:                  {balance} (L:{pct_long_par:.0f}% / S:{pct_short_par:.0f}%)")
+
+                print(f"\n    📁 ARCHIVOS GENERADOS:")
+                print(f"       Total:                    {len(res['archivos_generados'])}")
+                for archivo in res['archivos_generados']:
+                    nombre = Path(archivo).name
+                    tipo = "Interpretación" if "interpretaciones" in archivo else \
+                           "Estrategia" if "estrategia.csv" in archivo else \
+                           "Código" if ".py" in archivo else "Resumen"
+                    print(f"       • {tipo:<15} → {nombre}")
+
+        # ============================================================
+        # LOGS CAPTURADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'4. LOGS CAPTURADOS DURANTE LA EJECUCIÓN':^100}")
+        print(f"{'─'*100}")
+
+        total_logs = len(log_capture.info_logs) + len(log_capture.warnings) + len(log_capture.errors)
+
+        if total_logs == 0:
+            print(f"\n✓ No se detectaron anomalías, warnings o errores durante la ejecución")
+        else:
+            print(f"\nTotal de eventos registrados: {total_logs}")
+
+            # INFO LOGS (anomalías menores)
+            if log_capture.info_logs:
+                print(f"\n📋 INFORMACIÓN RELEVANTE ({len(log_capture.info_logs)}):")
+                print("-" * 80)
+                for i, info in enumerate(log_capture.info_logs, 1):
+                    print(f"{i:3d}. [{info['timestamp']}] [{info['modulo']}]")
+                    print(f"     {info['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron mensajes informativos de interés")
+
+            # WARNINGS
+            if log_capture.warnings:
+                print(f"\n⚠️  ADVERTENCIAS ({len(log_capture.warnings)}):")
+                print("-" * 80)
+                for i, warn in enumerate(log_capture.warnings, 1):
+                    print(f"{i:3d}. [{warn['timestamp']}] [{warn['modulo']}]")
+                    print(f"     {warn['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron advertencias")
+
+            # ERRORS
+            if log_capture.errors:
+                print(f"\n❌ ERRORES ({len(log_capture.errors)}):")
+                print("-" * 80)
+                for i, error in enumerate(log_capture.errors, 1):
+                    print(f"{i:3d}. [{error['timestamp']}] [{error['modulo']}:{error['linea']}]")
+                    print(f"     {error['mensaje']}")
+            else:
+                print(f"\n✓ No se registraron errores")
+
+        print(f"{'─'*100}")
+
+        # ============================================================
+        # ARCHIVOS GENERADOS
+        # ============================================================
+        print(f"\n{'─'*100}")
+        print(f"{'5. ARCHIVOS GENERADOS':^100}")
+        print(f"{'─'*100}")
+
+        archivos_interpretaciones = list(self.interpretaciones_dir.glob("*.csv"))
+        archivos_estrategias = list(self.estrategias_dir.glob("*.csv"))
+        archivos_codigo = list(self.codigo_dir.glob("*.py"))
+        archivos_resumenes = list(self.resumen_dir.glob("*.csv"))
+
+        total_archivos = len(archivos_interpretaciones) + len(archivos_estrategias) + len(archivos_codigo) + len(archivos_resumenes)
+
+        print(f"\n  Total de archivos generados: {total_archivos}")
+        print(f"\n  🔍 Interpretaciones (CSV):    {len(archivos_interpretaciones):3d} archivos → {self.interpretaciones_dir}/")
+        print(f"  📊 Estrategias (CSV):         {len(archivos_estrategias):3d} archivos → {self.estrategias_dir}/")
+        print(f"  💻 Código Ejecutable (PY):    {len(archivos_codigo):3d} archivos → {self.codigo_dir}/")
+        print(f"  📝 Resúmenes (CSV):           {len(archivos_resumenes):3d} archivos → {self.resumen_dir}/")
+        print(f"\n  📁 Ubicación base: {self.output_dir}")
+
+        # ============================================================
+        # FILOSOFÍA Y CONCLUSIÓN
+        # ============================================================
+        print(f"\n{'='*100}")
+        print(f"{'FILOSOFÍA DEL SISTEMA Y CONCLUSIÓN':^100}")
+        print(f"{'='*100}")
+
+        if exitosos == len(self.resultados):
+            print(f"\n  ✅ GENERACIÓN COMPLETADA EXITOSAMENTE")
+            print(f"\n  Resumen:")
+            print(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            print(f"     • Total transformaciones:   {total_transformaciones:,}")
+            print(f"     • Total reglas generadas:   {total_reglas_long + total_reglas_short:,}")
+            print(f"     • Código ejecutable:        {len(archivos_codigo)} estrategias")
+        elif exitosos > 0:
+            print(f"\n  ⚠️  GENERACIÓN COMPLETADA CON ERRORES PARCIALES")
+            print(f"\n  Resumen:")
+            print(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
+            print(f"     • Pares con errores:        {fallidos}")
+        else:
+            print(f"\n  ❌ GENERACIÓN FALLIDA - TODOS LOS PARES CON ERRORES")
+
+        print(f"\n  {'─'*96}")
+        print(f"  🎯 FILOSOFÍA: LAS ESTRATEGIAS EMERGIERON DE LOS DATOS")
+        print(f"  {'─'*96}")
+        print(f"\n     1. NO predefinimos qué funciona")
+        print(f"     2. Generamos ~1,700 transformaciones sistemáticamente")
+        print(f"     3. Validación rigurosa multidimensional:")
+        print(f"        • Walk-Forward Validation (sin look-ahead bias)")
+        print(f"        • Permutation Test (vs. azar)")
+        print(f"        • Bootstrap (intervalos de confianza)")
+        print(f"        • Análisis de Robustez (estabilidad)")
+        print(f"     4. Solo transformaciones que PASARON TODOS los filtros")
+        print(f"     5. Interpretación post-hoc y formulación de reglas")
+        print(f"     6. Código Python ejecutable por estrategia")
+
+        if exitosos > 0:
+            print(f"\n  📋 PRÓXIMOS PASOS:")
+            print(f"     1. Revisar código ejecutable generado")
+            print(f"        → Ubicación: {self.codigo_dir}/")
+            print(f"     2. Analizar reglas de entrada por par")
+            print(f"     3. Ejecutar backtest completo:")
+            print(f"        → python ejecutar_backtest.py")
+            print(f"     4. Evaluar métricas de riesgo/retorno")
+            print(f"     5. Validar resultados antes de producción")
+
+        print(f"\n  {'─'*96}")
+        print(f"  ℹ️  NOTA IMPORTANTE:")
+        print(f"     Estos son edges GENUINOS emergidos de los datos,")
+        print(f"     NO supuestos a priori ni estrategias predefinidas.")
+        print(f"     Cada regla está respaldada por evidencia estadística rigurosa.")
+        print(f"{'='*100}")
 
 
 def main():
