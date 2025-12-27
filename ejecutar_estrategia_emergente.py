@@ -447,9 +447,10 @@ class EjecutorEstrategiaEmergente:
 
     def ejecutar_todos(self):
         """
-        Ejecuta generación de estrategias para todos los pares.
+        Ejecuta generación de estrategias MULTI-TIMEFRAME para todos los pares.
         """
-        self.logger.info(f"Iniciando generación de estrategias emergentes para {len(self.pares)} pares")
+        self.logger.info(f"Iniciando generación de estrategias emergentes MULTI-TIMEFRAME")
+        self.logger.info(f"Pares: {len(self.pares)}, Timeframes: {len(self.timeframes)}")
 
         # Limpiar archivos viejos si está habilitado
         if self.limpiar_archivos_viejos:
@@ -457,42 +458,59 @@ class EjecutorEstrategiaEmergente:
 
         if self.verbose:
             print(f"\n{'='*80}")
-            print(f"GENERANDO ESTRATEGIAS EMERGENTES")
+            print(f"GENERANDO ESTRATEGIAS EMERGENTES - MULTI-TIMEFRAME")
             print(f"{'='*80}")
+            print(f"Pares: {len(self.pares)}, Timeframes: {len(self.timeframes)}")
 
-        # Procesar cada par con barra de progreso
-        for i, par in enumerate(tqdm(self.pares, desc="Procesando pares", unit="par"), 1):
+        # LOOP MULTI-TIMEFRAME
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        combinacion_actual = 0
+
+        for timeframe in self.timeframes:
+            # Definir timeframe actual para uso interno
+            self.timeframe = timeframe
+
             if self.verbose:
-                print(f"\n[{i}/{len(self.pares)}] Procesando {par}...")
+                print(f"\n{'='*80}")
+                print(f"PROCESANDO TIMEFRAME: {timeframe}")
+                print(f"{'='*80}")
 
-            resultado = self.generar_estrategia_par(par)
-            self.resultados[par] = resultado
+            for par in self.pares:
+                combinacion_actual += 1
+                if self.verbose:
+                    print(f"\n[{combinacion_actual}/{total_combinaciones}] Procesando {par} ({timeframe})...")
 
-            if resultado['exito']:
-                if self.verbose:
-                    print(f"✓ {par}: Estrategia generada exitosamente")
-                    print(f"  - Transformaciones: {resultado['num_transformaciones']}")
-                    print(f"  - Reglas Long: {resultado['num_reglas_long']}")
-                    print(f"  - Reglas Short: {resultado['num_reglas_short']}")
-                    print(f"  - Archivos generados: {len(resultado['archivos_generados'])}")
-            else:
-                if self.verbose:
-                    print(f"✗ {par}: Falló - {resultado['error']}")
+                resultado = self.generar_estrategia_par(par)
+                # Usar clave compuesta par_timeframe
+                key = f"{par}_{timeframe}"
+                self.resultados[key] = resultado
+
+                if resultado['exito']:
+                    if self.verbose:
+                        print(f"✓ {par} ({timeframe}): Estrategia generada exitosamente")
+                        print(f"  - Transformaciones: {resultado['num_transformaciones']}")
+                        print(f"  - Reglas Long: {resultado['num_reglas_long']}")
+                        print(f"  - Reglas Short: {resultado['num_reglas_short']}")
+                        print(f"  - Archivos generados: {len(resultado['archivos_generados'])}")
+                else:
+                    if self.verbose:
+                        print(f"✗ {par} ({timeframe}): Falló - {resultado['error']}")
 
         # Imprimir resumen final
         self._imprimir_resumen()
 
     def _imprimir_resumen(self):
-        """Imprime resumen detallado de la ejecución."""
+        """Imprime resumen detallado de la ejecución MULTI-TIMEFRAME."""
         exitosos = sum(1 for r in self.resultados.values() if r['exito'])
-        fallidos = len(self.resultados) - exitosos
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        fallidos = total_combinaciones - exitosos
 
         total_transformaciones = sum(r['num_transformaciones'] for r in self.resultados.values() if r['exito'])
         total_reglas_long = sum(r['num_reglas_long'] for r in self.resultados.values() if r['exito'])
         total_reglas_short = sum(r['num_reglas_short'] for r in self.resultados.values() if r['exito'])
 
         print(f"\n{'='*100}")
-        print(f"{'RESUMEN FINAL - ESTRATEGIA EMERGENTE':^100}")
+        print(f"{'RESUMEN FINAL - ESTRATEGIA EMERGENTE (MULTI-TIMEFRAME)':^100}")
         print(f"{'='*100}")
 
         # ============================================================
@@ -502,8 +520,9 @@ class EjecutorEstrategiaEmergente:
         print(f"{'1. RESUMEN EJECUTIVO':^100}")
         print(f"{'─'*100}")
 
-        print(f"\n  Timeframe:                     {self.timeframe}")
-        print(f"  Pares Procesados:              {exitosos}/{len(self.resultados)}")
+        print(f"\n  Pares:                         {len(self.pares)}")
+        print(f"  Timeframes:                    {len(self.timeframes)} ({', '.join(self.timeframes)})")
+        print(f"  Combinaciones Procesadas:      {exitosos}/{total_combinaciones}")
 
         if exitosos > 0:
             # Recopilar métricas
@@ -549,16 +568,16 @@ class EjecutorEstrategiaEmergente:
                 print(f"  📊 MENOR PRODUCTOR:            {peor_par} ({transformaciones_por_par[peor_idx]:.0f} transformaciones)")
 
         # ============================================================
-        # TABLA DE RESULTADOS COMPLETA
+        # TABLA DE RESULTADOS COMPLETA (MULTI-TIMEFRAME)
         # ============================================================
         print(f"\n{'─'*100}")
-        print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        print(f"{'2. RESULTADOS POR COMBINACIÓN (MULTI-TIMEFRAME)':^100}")
         print(f"{'─'*100}")
-        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Transform.':<12} │ {'Reglas Long':<12} │ {'Reglas Short':<13} │ {'Total Reglas':<13} │ {'Archivos':<9}")
+        print(f"\n{'Par_TF':<14} │ {'✓':<3} │ {'Transform.':<12} │ {'Reglas Long':<12} │ {'Reglas Short':<13} │ {'Total Reglas':<13} │ {'Archivos':<9}")
         print("─" * 100)
 
-        for par in self.pares:
-            res = self.resultados[par]
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
 
             if res['exito']:
                 n_trans = res['num_transformaciones']
@@ -568,35 +587,35 @@ class EjecutorEstrategiaEmergente:
                 n_arch = len(res['archivos_generados'])
 
                 print(
-                    f"{par:<10} │ {'✓':<3} │ {n_trans:>11,} │ "
+                    f"{key:<14} │ {'✓':<3} │ {n_trans:>11,} │ "
                     f"{n_long:>11,} │ {n_short:>12,} │ {n_total:>12,} │ {n_arch:>8}"
                 )
             else:
                 print(
-                    f"{par:<10} │ {'✗':<3} │ {'N/A':<12} │ {'N/A':<12} │ "
+                    f"{key:<14} │ {'✗':<3} │ {'N/A':<12} │ {'N/A':<12} │ "
                     f"{'N/A':<13} │ {'N/A':<13} │ {'N/A':<9}"
                 )
-                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
+                print(f"{'':15} └─ Error: {res.get('error', 'Desconocido')}")
 
         print("─" * 100)
 
         # ============================================================
-        # DETALLE POR PAR
+        # DETALLE POR COMBINACIÓN (MULTI-TIMEFRAME)
         # ============================================================
         if exitosos > 0:
             print(f"\n{'─'*100}")
-            print(f"{'3. DETALLE POR PAR':^100}")
+            print(f"{'3. DETALLE POR COMBINACIÓN (MULTI-TIMEFRAME)':^100}")
             print(f"{'─'*100}")
 
-            for idx, par in enumerate(self.pares, 1):
-                res = self.resultados[par]
+            for idx, key in enumerate(sorted(self.resultados.keys()), 1):
+                res = self.resultados[key]
 
                 if not res['exito']:
-                    print(f"\n  [{idx}] {par}: ✗ ERROR")
+                    print(f"\n  [{idx}] {key}: ✗ ERROR")
                     print(f"      └─ {res.get('error', 'Desconocido')}")
                     continue
 
-                print(f"\n  [{idx}] {par}")
+                print(f"\n  [{idx}] {key}")
                 print(f"  {'─'*96}")
 
                 print(f"    📊 TRANSFORMACIONES:")
@@ -698,20 +717,22 @@ class EjecutorEstrategiaEmergente:
         print(f"{'FILOSOFÍA DEL SISTEMA Y CONCLUSIÓN':^100}")
         print(f"{'='*100}")
 
-        if exitosos == len(self.resultados):
-            print(f"\n  ✅ GENERACIÓN COMPLETADA EXITOSAMENTE")
+        if exitosos == total_combinaciones:
+            print(f"\n  ✅ GENERACIÓN MULTI-TIMEFRAME COMPLETADA EXITOSAMENTE")
             print(f"\n  Resumen:")
-            print(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            print(f"     • Pares:                    {len(self.pares)}")
+            print(f"     • Timeframes:               {len(self.timeframes)}")
+            print(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
             print(f"     • Total transformaciones:   {total_transformaciones:,}")
             print(f"     • Total reglas generadas:   {total_reglas_long + total_reglas_short:,}")
             print(f"     • Código ejecutable:        {len(archivos_codigo)} estrategias")
         elif exitosos > 0:
             print(f"\n  ⚠️  GENERACIÓN COMPLETADA CON ERRORES PARCIALES")
             print(f"\n  Resumen:")
-            print(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
-            print(f"     • Pares con errores:        {fallidos}")
+            print(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
+            print(f"     • Combinaciones con errores: {fallidos}")
         else:
-            print(f"\n  ❌ GENERACIÓN FALLIDA - TODOS LOS PARES CON ERRORES")
+            print(f"\n  ❌ GENERACIÓN FALLIDA - TODAS LAS COMBINACIONES CON ERRORES")
 
         print(f"\n  {'─'*96}")
         print(f"  🎯 FILOSOFÍA: LAS ESTRATEGIAS EMERGIERON DE LOS DATOS")

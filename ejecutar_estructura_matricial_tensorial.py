@@ -100,22 +100,25 @@ class EjecutorEstructuraMatricialTensorial:
         features_dir: Path,
         output_dir: Path,
         pares: List[str],
+        timeframes: list = None,
         limpiar_archivos_viejos: bool = True,
         hacer_backup: bool = True
     ):
         """
-        Inicializa el ejecutor.
+        Inicializa el ejecutor MULTI-TIMEFRAME.
 
         Args:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar estructuras
             pares: Lista de pares a procesar
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
             hacer_backup: Si True, hace backup antes de borrar
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
         self.pares = pares
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
 
@@ -182,45 +185,47 @@ class EjecutorEstructuraMatricialTensorial:
 
         logger.info(f"✓ Limpieza completada: {len(archivos_npz)} archivos eliminados\n")
 
-    def cargar_features(self, par: str) -> Optional[pd.DataFrame]:
+    def cargar_features(self, par: str, timeframe: str) -> Optional[pd.DataFrame]:
         """
-        Carga features de un par.
+        Carga features de un par para un timeframe específico.
 
         Args:
             par: Nombre del par
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
 
         Returns:
             DataFrame con features o None si error
         """
-        file_path = self.features_dir / f"{par}_M15_features.parquet"
+        file_path = self.features_dir / f"{par}_{timeframe}_features.parquet"
 
         if not file_path.exists():
             logger.error(f"Archivo no encontrado: {file_path}")
             return None
 
         try:
-            logger.info(f"Cargando features: {par}")
+            logger.info(f"Cargando features: {par} ({timeframe})")
             df = pd.read_parquet(file_path)
             logger.info(f"  Shape: {df.shape}")
             logger.info(f"  Período: {df.index[0]} → {df.index[-1]}")
             return df
         except Exception as e:
-            logger.error(f"Error cargando {par}: {e}")
+            logger.error(f"Error cargando {par} ({timeframe}): {e}")
             return None
 
-    def crear_matriz_2d(self, par: str, df_features: pd.DataFrame) -> Dict:
+    def crear_matriz_2d(self, par: str, timeframe: str, df_features: pd.DataFrame) -> Dict:
         """
         Crea matriz 2D (n_observaciones × n_features).
 
         Args:
             par: Nombre del par
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
             df_features: DataFrame con features
 
         Returns:
             Diccionario con estadísticas
         """
         logger.info(f"\n{'='*70}")
-        logger.info(f"MATRIZ 2D - {par}")
+        logger.info(f"MATRIZ 2D - {par} ({timeframe})")
         logger.info(f"{'='*70}")
 
         inicio = datetime.now()
@@ -242,7 +247,7 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"  Memoria: {X.nbytes / (1024**2):.1f} MB")
 
             # Guardar
-            output_file = self.matriz_2d_dir / f"{par}_matriz_2d.npz"
+            output_file = self.matriz_2d_dir / f"{par}_{timeframe}_matriz_2d.npz"
 
             np.savez_compressed(
                 output_file,
@@ -279,6 +284,7 @@ class EjecutorEstructuraMatricialTensorial:
     def crear_secuencias_3d(
         self,
         par: str,
+        timeframe: str,
         df_features: pd.DataFrame,
         seq_length: int = 50
     ) -> Dict:
@@ -289,6 +295,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
             df_features: DataFrame con features
             seq_length: Longitud de cada secuencia (default: 50 velas)
 
@@ -296,7 +303,7 @@ class EjecutorEstructuraMatricialTensorial:
             Diccionario con estadísticas
         """
         logger.info(f"\n{'='*70}")
-        logger.info(f"TENSOR 3D SECUENCIAL - {par}")
+        logger.info(f"TENSOR 3D SECUENCIAL - {par} ({timeframe})")
         logger.info(f"{'='*70}")
 
         inicio = datetime.now()
@@ -331,7 +338,7 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"  Memoria: {X_3d.nbytes / (1024**2):.1f} MB")
 
             # Guardar
-            output_file = self.tensor_3d_dir / f"{par}_tensor_3d_seq{seq_length}.npz"
+            output_file = self.tensor_3d_dir / f"{par}_{timeframe}_tensor_3d_seq{seq_length}.npz"
 
             np.savez_compressed(
                 output_file,
@@ -369,6 +376,7 @@ class EjecutorEstructuraMatricialTensorial:
     def normalizar_point_in_time(
         self,
         par: str,
+        timeframe: str,
         df_features: pd.DataFrame,
         window: int = 200
     ) -> Dict:
@@ -381,6 +389,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
             df_features: DataFrame con features
             window: Ventana para normalización (default: 200)
 
@@ -388,7 +397,7 @@ class EjecutorEstructuraMatricialTensorial:
             Diccionario con estadísticas
         """
         logger.info(f"\n{'='*70}")
-        logger.info(f"NORMALIZACIÓN POINT-IN-TIME - {par}")
+        logger.info(f"NORMALIZACIÓN POINT-IN-TIME - {par} ({timeframe})")
         logger.info(f"{'='*70}")
 
         inicio = datetime.now()
@@ -425,8 +434,8 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"  Rank shape: {df_rank_clean.shape}")
 
             # Guardar
-            output_zscore = self.normalizacion_dir / f"{par}_zscore_w{window}.parquet"
-            output_rank = self.normalizacion_dir / f"{par}_rank_w{window}.parquet"
+            output_zscore = self.normalizacion_dir / f"{par}_{timeframe}_zscore_w{window}.parquet"
+            output_rank = self.normalizacion_dir / f"{par}_{timeframe}_rank_w{window}.parquet"
 
             df_zscore_clean.to_parquet(output_zscore, compression='snappy')
             df_rank_clean.to_parquet(output_rank, compression='snappy')
@@ -456,41 +465,44 @@ class EjecutorEstructuraMatricialTensorial:
                 'error': str(e)
             }
 
-    def procesar_un_par(self, par: str, seq_length: int = 50, norm_window: int = 200):
+    def procesar_un_par(self, par: str, timeframe: str, seq_length: int = 50, norm_window: int = 200):
         """
         Procesa un par completo: matriz 2D + tensor 3D + normalización.
 
         Args:
             par: Nombre del par
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
             seq_length: Longitud de secuencias para tensor 3D
             norm_window: Ventana para normalización
         """
         logger.info(f"\n{'='*80}")
-        logger.info(f"PROCESANDO: {par}")
+        logger.info(f"PROCESANDO: {par} ({timeframe})")
         logger.info(f"{'='*80}")
 
         # Cargar features
-        df_features = self.cargar_features(par)
+        df_features = self.cargar_features(par, timeframe)
         if df_features is None:
-            self.resultados[par] = {'exito': False, 'error': 'No se pudieron cargar features'}
+            key = f"{par}_{timeframe}"
+            self.resultados[key] = {'exito': False, 'error': 'No se pudieron cargar features'}
             return
 
         resultados_par = {}
 
         # 1. Matriz 2D
-        resultados_par['matriz_2d'] = self.crear_matriz_2d(par, df_features)
+        resultados_par['matriz_2d'] = self.crear_matriz_2d(par, timeframe, df_features)
 
         # 2. Tensor 3D
-        resultados_par['tensor_3d'] = self.crear_secuencias_3d(par, df_features, seq_length)
+        resultados_par['tensor_3d'] = self.crear_secuencias_3d(par, timeframe, df_features, seq_length)
 
         # 3. Normalización
-        resultados_par['normalizacion'] = self.normalizar_point_in_time(par, df_features, norm_window)
+        resultados_par['normalizacion'] = self.normalizar_point_in_time(par, timeframe, df_features, norm_window)
 
-        self.resultados[par] = resultados_par
+        key = f"{par}_{timeframe}"
+        self.resultados[key] = resultados_par
 
     def ejecutar_todos(self, seq_length: int = 50, norm_window: int = 200):
         """
-        Ejecuta el procesamiento para todos los pares.
+        Ejecuta el procesamiento MULTI-TIMEFRAME para todos los pares.
 
         Args:
             seq_length: Longitud de secuencias para tensor 3D
@@ -499,9 +511,10 @@ class EjecutorEstructuraMatricialTensorial:
         self.tiempo_inicio = datetime.now()
 
         logger.info(f"\n{'='*80}")
-        logger.info("ESTRUCTURA MATRICIAL Y TENSORIAL - TODOS LOS PARES")
+        logger.info("ESTRUCTURA MATRICIAL Y TENSORIAL - MULTI-TIMEFRAME")
         logger.info(f"{'='*80}")
         logger.info(f"Pares: {len(self.pares)}")
+        logger.info(f"Timeframes: {self.timeframes}")
         logger.info(f"Directorio features: {self.features_dir}")
         logger.info(f"Directorio salida: {self.output_dir}")
         logger.info(f"Limpiar archivos viejos: {'SÍ' if self.limpiar_archivos_viejos else 'NO'}")
@@ -518,10 +531,19 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info("="*80)
             self.limpiar_directorio_salida()
 
-        # Procesar cada par
-        for i, par in enumerate(tqdm(self.pares, desc="Procesando pares", unit="par"), 1):
-            logger.info(f"\n[{i}/{len(self.pares)}] Procesando: {par}")
-            self.procesar_un_par(par, seq_length, norm_window)
+        # LOOP MULTI-TIMEFRAME
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        combinacion_actual = 0
+
+        for timeframe in self.timeframes:
+            logger.info(f"\n{'='*80}")
+            logger.info(f"PROCESANDO TIMEFRAME: {timeframe}")
+            logger.info(f"{'='*80}")
+
+            for par in self.pares:
+                combinacion_actual += 1
+                logger.info(f"\n[{combinacion_actual}/{total_combinaciones}] Procesando: {par} ({timeframe})")
+                self.procesar_un_par(par, timeframe, seq_length, norm_window)
 
         self.tiempo_fin = datetime.now()
 
@@ -532,14 +554,15 @@ class EjecutorEstructuraMatricialTensorial:
         """Imprime resumen final detallado."""
         tiempo_total = (self.tiempo_fin - self.tiempo_inicio).total_seconds()
 
-        # Recopilar estadísticas
+        # Recopilar estadísticas (ahora con multi-timeframe)
         exitosos = 0
         total_memoria_mb = 0
         total_archivo_mb = 0
         tiempos = []
+        total_combinaciones = len(self.pares) * len(self.timeframes)
 
-        for par in self.pares:
-            res = self.resultados.get(par, {})
+        # Iterar sobre todas las combinaciones par_timeframe
+        for key, res in self.resultados.items():
             matriz_ok = res.get('matriz_2d', {}).get('exito', False)
             tensor_ok = res.get('tensor_3d', {}).get('exito', False)
             norm_ok = res.get('normalizacion', {}).get('exito', False)
@@ -552,11 +575,11 @@ class EjecutorEstructuraMatricialTensorial:
                 total_archivo_mb += res.get('matriz_2d', {}).get('archivo_mb', 0)
                 total_archivo_mb += res.get('tensor_3d', {}).get('archivo_mb', 0)
 
-                # Tiempo total por par
-                tiempo_par = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
-                             res.get('tensor_3d', {}).get('tiempo_s', 0) +
-                             res.get('normalizacion', {}).get('tiempo_s', 0))
-                tiempos.append(tiempo_par)
+                # Tiempo total por combinación
+                tiempo_comb = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
+                              res.get('tensor_3d', {}).get('tiempo_s', 0) +
+                              res.get('normalizacion', {}).get('tiempo_s', 0))
+                tiempos.append(tiempo_comb)
 
         logger.info("\n" + "="*100)
         logger.info(f"{'RESUMEN FINAL - ESTRUCTURA MATRICIAL Y TENSORIAL':^100}")
@@ -567,9 +590,11 @@ class EjecutorEstructuraMatricialTensorial:
         # ============================================================
         logger.info("\n1. RESUMEN EJECUTIVO")
         logger.info("-" * 100)
-        logger.info(f"  Pares procesados exitosamente: {exitosos}/{len(self.pares)}")
+        logger.info(f"  Pares:                         {len(self.pares)}")
+        logger.info(f"  Timeframes:                    {len(self.timeframes)} ({', '.join(self.timeframes)})")
+        logger.info(f"  Combinaciones exitosas:        {exitosos}/{total_combinaciones}")
         logger.info(f"  Tiempo total:                  {tiempo_total:.1f}s ({tiempo_total/60:.1f} min)")
-        logger.info(f"  Tiempo promedio por par:       {tiempo_total/len(self.pares):.1f}s")
+        logger.info(f"  Tiempo promedio:               {tiempo_total/total_combinaciones:.1f}s por combinación")
         logger.info(f"  Memoria total (en RAM):        {total_memoria_mb:.1f} MB")
         logger.info(f"  Archivos generados:            {total_archivo_mb:.1f} MB")
 
@@ -579,15 +604,15 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"  Ratio de compresión:           {ratio_compresion:.1f}% (npz comprimido)")
 
         # ============================================================
-        # SECCIÓN 2: TABLA COMPLETA DE RESULTADOS
+        # SECCIÓN 2: TABLA COMPLETA DE RESULTADOS (MULTI-TIMEFRAME)
         # ============================================================
-        logger.info(f"\n2. TABLA COMPLETA DE RESULTADOS")
+        logger.info(f"\n2. TABLA COMPLETA DE RESULTADOS (MULTI-TIMEFRAME)")
         logger.info("-" * 100)
-        logger.info(f"{'Par':<12} {'Estado':<8} {'Shape 2D':<18} {'Shape 3D':<22} {'Mem(MB)':<10} {'Archivo(MB)':<12} {'Tiempo(s)':<10}")
+        logger.info(f"{'Par_TF':<16} {'Estado':<8} {'Shape 2D':<18} {'Shape 3D':<22} {'Mem(MB)':<10} {'Archivo(MB)':<12} {'Tiempo(s)':<10}")
         logger.info("-" * 100)
 
-        for par in self.pares:
-            res = self.resultados.get(par, {})
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
             matriz_ok = res.get('matriz_2d', {}).get('exito', False)
             tensor_ok = res.get('tensor_3d', {}).get('exito', False)
             norm_ok = res.get('normalizacion', {}).get('exito', False)
@@ -600,19 +625,19 @@ class EjecutorEstructuraMatricialTensorial:
                              res.get('tensor_3d', {}).get('memoria_mb', 0))
                 archivo_mb = (res.get('matriz_2d', {}).get('archivo_mb', 0) +
                              res.get('tensor_3d', {}).get('archivo_mb', 0))
-                tiempo_par = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
-                             res.get('tensor_3d', {}).get('tiempo_s', 0) +
-                             res.get('normalizacion', {}).get('tiempo_s', 0))
+                tiempo_comb = (res.get('matriz_2d', {}).get('tiempo_s', 0) +
+                              res.get('tensor_3d', {}).get('tiempo_s', 0) +
+                              res.get('normalizacion', {}).get('tiempo_s', 0))
 
                 shape_2d_str = f"{shape_2d[0]}×{shape_2d[1]}"
                 shape_3d_str = f"{shape_3d[0]}×{shape_3d[1]}×{shape_3d[2]}"
 
-                logger.info(f"{par:<12} {estado:<8} {shape_2d_str:<18} {shape_3d_str:<22} "
-                          f"{memoria_mb:<10.1f} {archivo_mb:<12.1f} {tiempo_par:<10.1f}")
+                logger.info(f"{key:<16} {estado:<8} {shape_2d_str:<18} {shape_3d_str:<22} "
+                          f"{memoria_mb:<10.1f} {archivo_mb:<12.1f} {tiempo_comb:<10.1f}")
             else:
                 estado = "✗"
                 error_msg = "Error en procesamiento"
-                logger.info(f"{par:<12} {estado:<8} {error_msg}")
+                logger.info(f"{key:<16} {estado:<8} {error_msg}")
 
         logger.info("-" * 100)
 
@@ -629,19 +654,19 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"  Desviación estándar: {np.std(tiempos):.1f}s")
 
         # ============================================================
-        # SECCIÓN 4: DETALLES POR PAR
+        # SECCIÓN 4: DETALLES POR COMBINACIÓN (MULTI-TIMEFRAME)
         # ============================================================
-        logger.info(f"\n4. DETALLES POR PAR")
+        logger.info(f"\n4. DETALLES POR COMBINACIÓN (MULTI-TIMEFRAME)")
         logger.info("-" * 100)
 
-        for par in self.pares:
-            res = self.resultados.get(par, {})
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
             matriz_ok = res.get('matriz_2d', {}).get('exito', False)
             tensor_ok = res.get('tensor_3d', {}).get('exito', False)
             norm_ok = res.get('normalizacion', {}).get('exito', False)
 
             if matriz_ok and tensor_ok and norm_ok:
-                logger.info(f"\n  {par}:")
+                logger.info(f"\n  {key}:")
 
                 # Matriz 2D
                 matriz_2d = res.get('matriz_2d', {})
@@ -727,9 +752,10 @@ class EjecutorEstructuraMatricialTensorial:
         logger.info(f"\n7. CONCLUSIÓN")
         logger.info("-" * 100)
 
-        if exitosos == len(self.pares):
-            logger.info(f"  ✓ ESTRUCTURA MATRICIAL/TENSORIAL COMPLETADA EXITOSAMENTE")
-            logger.info(f"  Todos los {len(self.pares)} pares procesados correctamente")
+        if exitosos == total_combinaciones:
+            logger.info(f"  ✓ ESTRUCTURA MATRICIAL/TENSORIAL MULTI-TIMEFRAME COMPLETADA EXITOSAMENTE")
+            logger.info(f"  Todas las {total_combinaciones} combinaciones procesadas correctamente")
+            logger.info(f"    • {len(self.pares)} pares × {len(self.timeframes)} timeframes")
             logger.info(f"\n  Estructuras generadas:")
             logger.info(f"    • Matrices 2D:     Para ML tradicional (RF, XGBoost, etc.)")
             logger.info(f"    • Tensores 3D:     Para modelos secuenciales (LSTM, GRU)")
@@ -743,14 +769,14 @@ class EjecutorEstructuraMatricialTensorial:
             logger.info(f"    6. ejecutar_backtest.py                      → Backtest completo")
         else:
             logger.info(f"  ⚠️  PROCESAMIENTO COMPLETADO CON ERRORES")
-            logger.info(f"  {exitosos}/{len(self.pares)} pares exitosos")
+            logger.info(f"  {exitosos}/{total_combinaciones} combinaciones exitosas")
             logger.info(f"  Revisar logs de errores arriba")
 
         logger.info("="*100 + "\n")
 
 
 def main():
-    """Función principal."""
+    """Función principal MULTI-TIMEFRAME."""
     # Configuración
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
@@ -765,6 +791,9 @@ def main():
         'AUD_USD'
     ]
 
+    # MULTI-TIMEFRAME: Procesar todos los timeframes
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+
     SEQ_LENGTH = 50  # Longitud de secuencias para LSTM/GRU
     NORM_WINDOW = 200  # Ventana para normalización rolling
 
@@ -777,11 +806,12 @@ def main():
         logger.error(f"Directorio de features no encontrado: {FEATURES_DIR}")
         return
 
-    # Ejecutar
+    # Ejecutar MULTI-TIMEFRAME
     ejecutor = EjecutorEstructuraMatricialTensorial(
         features_dir=FEATURES_DIR,
         output_dir=OUTPUT_DIR,
         pares=PARES,
+        timeframes=TIMEFRAMES,
         limpiar_archivos_viejos=LIMPIAR_ARCHIVOS_VIEJOS,
         hacer_backup=HACER_BACKUP
     )

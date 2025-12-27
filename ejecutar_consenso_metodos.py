@@ -772,15 +772,15 @@ class EjecutorConsensoMetodos:
 
     def ejecutar_todos(self):
         """
-        Ejecuta el consenso para todos los pares.
+        Ejecuta el consenso MULTI-TIMEFRAME para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
 
         logger.info("\n" + "="*80)
-        logger.info("CONSENSO DE MÉTODOS - TODOS LOS PARES")
+        logger.info("CONSENSO DE MÉTODOS - MULTI-TIMEFRAME")
         logger.info("="*80)
         logger.info(f"Pares a procesar: {len(self.pares)}")
-        logger.info(f"Timeframe: {self.timeframe}")
+        logger.info(f"Timeframes: {self.timeframes}")
         logger.info(f"Horizonte predicción: {self.horizonte_prediccion} período(s)")
         logger.info(f"Top-N por método: {self.top_n_por_metodo}")
         logger.info(f"Directorio features: {self.features_dir}")
@@ -797,12 +797,26 @@ class EjecutorConsensoMetodos:
             logger.info("="*80)
             self.limpiar_directorio_salida()
 
-        # Procesar cada par
-        for i, par in enumerate(tqdm(self.pares, desc="Procesando pares", unit="par"), 1):
-            logger.info(f"\n[{i}/{len(self.pares)}] Procesando: {par}")
+        # LOOP MULTI-TIMEFRAME
+        total_combinaciones = len(self.pares) * len(self.timeframes)
+        combinacion_actual = 0
 
-            resultado = self.analizar_un_par(par)
-            self.resultados[par] = resultado
+        for timeframe in self.timeframes:
+            # Definir timeframe actual para uso interno
+            self.timeframe = timeframe
+
+            logger.info(f"\n{'='*80}")
+            logger.info(f"PROCESANDO TIMEFRAME: {timeframe}")
+            logger.info(f"{'='*80}")
+
+            for par in self.pares:
+                combinacion_actual += 1
+                logger.info(f"\n[{combinacion_actual}/{total_combinaciones}] Procesando: {par} ({timeframe})")
+
+                resultado = self.analizar_un_par(par)
+                # Usar clave compuesta par_timeframe
+                key = f"{par}_{timeframe}"
+                self.resultados[key] = resultado
 
         self.tiempo_fin = datetime.now()
 
@@ -817,12 +831,13 @@ class EjecutorConsensoMetodos:
         print(f"{'RESUMEN FINAL - CONSENSO DE MÉTODOS':^100}")
         print(f"{'='*100}")
 
-        # Recopilar estadísticas
+        # Recopilar estadísticas (ahora con multi-timeframe)
         exitosos = 0
         total_aprobados = 0
         total_fuerte = 0
         total_medio = 0
         total_sin_consenso = 0
+        total_combinaciones = len(self.pares) * len(self.timeframes)
 
         for res in self.resultados.values():
             if res['exito']:
@@ -839,8 +854,9 @@ class EjecutorConsensoMetodos:
         print(f"{'1. RESUMEN EJECUTIVO':^100}")
         print(f"{'─'*100}")
 
-        print(f"\n  Timeframe:                     {self.timeframe}")
-        print(f"  Pares Procesados:              {exitosos}/{len(self.pares)}")
+        print(f"\n  Pares:                         {len(self.pares)}")
+        print(f"  Timeframes:                    {len(self.timeframes)} ({', '.join(self.timeframes)})")
+        print(f"  Combinaciones exitosas:        {exitosos}/{total_combinaciones}")
 
         if exitosos > 0:
             # Métricas de consenso
@@ -881,58 +897,58 @@ class EjecutorConsensoMetodos:
         print(f"     Inicio:                     {self.tiempo_inicio.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"     Fin:                        {self.tiempo_fin.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"     Duración Total:             {self._formatear_duracion(tiempo_total)}")
-        print(f"     Tiempo Promedio/Par:        {self._formatear_duracion(tiempo_total/len(self.pares))}")
+        print(f"     Tiempo Promedio:            {self._formatear_duracion(tiempo_total/total_combinaciones)} por combinación")
 
         # ============================================================
-        # TABLA DE RESULTADOS COMPLETA
+        # TABLA DE RESULTADOS COMPLETA (MULTI-TIMEFRAME)
         # ============================================================
         print(f"\n{'─'*100}")
-        print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
+        print(f"{'2. RESULTADOS POR COMBINACIÓN (MULTI-TIMEFRAME)':^100}")
         print(f"{'─'*100}")
-        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Sin Cons.':<11} │ {'Aprobados':<11} │ {'Tasa%':<7} │ {'Tiempo':<10}")
+        print(f"\n{'Par_TF':<14} │ {'✓':<3} │ {'Fuerte':<8} │ {'Medio':<8} │ {'Sin Cons.':<11} │ {'Aprobados':<11} │ {'Tasa%':<7} │ {'Tiempo':<10}")
         print("─" * 100)
 
-        for par in self.pares:
-            res = self.resultados[par]
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
 
             if res['exito']:
                 n_fuerte = res['consenso']['tabla']['n_fuerte']
                 n_medio = res['consenso']['tabla']['n_medio']
                 n_sin = res['consenso']['tabla']['n_sin_consenso']
                 n_aprobados = res['consenso']['proceso']['n_aprobados']
-                total_par = n_fuerte + n_medio + n_sin
-                tasa = (n_aprobados / total_par * 100) if total_par > 0 else 0
+                total_comb = n_fuerte + n_medio + n_sin
+                tasa = (n_aprobados / total_comb * 100) if total_comb > 0 else 0
 
                 print(
-                    f"{par:<10} │ {'✓':<3} │ {n_fuerte:>7,} │ {n_medio:>7,} │ "
+                    f"{key:<14} │ {'✓':<3} │ {n_fuerte:>7,} │ {n_medio:>7,} │ "
                     f"{n_sin:>10,} │ {n_aprobados:>10,} │ {tasa:>6.1f} │ {res['tiempo_segundos']:>9.1f}s"
                 )
             else:
                 print(
-                    f"{par:<10} │ {'✗':<3} │ {'N/A':<8} │ {'N/A':<8} │ {'N/A':<11} │ "
+                    f"{key:<14} │ {'✗':<3} │ {'N/A':<8} │ {'N/A':<8} │ {'N/A':<11} │ "
                     f"{'N/A':<11} │ {'N/A':<7} │ {res['tiempo_segundos']:>9.1f}s"
                 )
-                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
+                print(f"{'':15} └─ Error: {res.get('error', 'Desconocido')}")
 
         print("─" * 100)
 
         # ============================================================
-        # MÉTRICAS DETALLADAS POR PAR
+        # MÉTRICAS DETALLADAS POR COMBINACIÓN
         # ============================================================
         if exitosos > 0:
             print(f"\n{'─'*100}")
-            print(f"{'3. MÉTRICAS DETALLADAS POR PAR':^100}")
+            print(f"{'3. MÉTRICAS DETALLADAS POR COMBINACIÓN (MULTI-TIMEFRAME)':^100}")
             print(f"{'─'*100}")
 
-            for idx, par in enumerate(self.pares, 1):
-                res = self.resultados[par]
+            for idx, key in enumerate(sorted(self.resultados.keys()), 1):
+                res = self.resultados[key]
 
                 if not res['exito']:
-                    print(f"\n  [{idx}] {par}: ✗ ERROR")
+                    print(f"\n  [{idx}] {key}: ✗ ERROR")
                     print(f"      └─ {res.get('error', 'Desconocido')}")
                     continue
 
-                print(f"\n  [{idx}] {par}")
+                print(f"\n  [{idx}] {key}")
                 print(f"  {'─'*96}")
 
                 # Consenso Tabla
@@ -1044,10 +1060,12 @@ class EjecutorConsensoMetodos:
         print(f"{'CONCLUSIÓN':^100}")
         print(f"{'='*100}")
 
-        if exitosos == len(self.pares):
-            print(f"\n  ✅ CONSENSO COMPLETADO EXITOSAMENTE")
+        if exitosos == total_combinaciones:
+            print(f"\n  ✅ CONSENSO MULTI-TIMEFRAME COMPLETADO EXITOSAMENTE")
             print(f"\n  Resumen:")
-            print(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            print(f"     • Pares:                    {len(self.pares)}")
+            print(f"     • Timeframes:               {len(self.timeframes)}")
+            print(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
             print(f"     • Features aprobados:       {total_aprobados:,}")
             print(f"     • Consenso fuerte:          {total_fuerte:,}")
             print(f"     • Consenso medio:           {total_medio:,}")
@@ -1063,8 +1081,8 @@ class EjecutorConsensoMetodos:
         elif exitosos > 0:
             print(f"\n  ⚠️  CONSENSO COMPLETADO CON ERRORES PARCIALES")
             print(f"\n  Resumen:")
-            print(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
-            print(f"     • Pares con errores:        {len(self.pares) - exitosos}")
+            print(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
+            print(f"     • Combinaciones con errores: {total_combinaciones - exitosos}")
 
             print(f"\n  📋 ACCIÓN REQUERIDA:")
             print(f"     1. Revisar logs de errores en sección 4")
