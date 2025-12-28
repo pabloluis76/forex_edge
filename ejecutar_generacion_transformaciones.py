@@ -380,8 +380,8 @@ class EjecutorGeneracionCompleta:
 
         logger.info(f"\n  📁 Ubicación: {self.output_dir}")
         logger.info(f"\n  Archivos generados:")
-        for par in self.pares:
-            res = self.resultados[par]
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
             if res['exito']:
                 archivo = Path(res['archivo'])
                 logger.info(f"     • {archivo.name:<35} {res['tamaño_mb']:>6.1f} MB")
@@ -393,10 +393,12 @@ class EjecutorGeneracionCompleta:
         logger.info(f"{'CONCLUSIÓN':^100}")
         logger.info("="*100)
 
-        if exitosos == len(self.pares):
-            logger.info(f"\n  ✅ GENERACIÓN COMPLETADA EXITOSAMENTE")
+        if exitosos == total_combinaciones:
+            logger.info(f"\n  ✅ GENERACIÓN MULTI-TIMEFRAME COMPLETADA EXITOSAMENTE")
             logger.info(f"\n  Resumen:")
-            logger.info(f"     • Pares procesados:         {exitosos}/{len(self.pares)}")
+            logger.info(f"     • Pares:                    {len(self.pares)}")
+            logger.info(f"     • Timeframes:               {len(self.timeframes)}")
+            logger.info(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
             logger.info(f"     • Total features:           {total_features:,}")
             logger.info(f"     • Tamaño total:             {total_tamaño:.1f} MB")
 
@@ -411,8 +413,8 @@ class EjecutorGeneracionCompleta:
         elif exitosos > 0:
             logger.info(f"\n  ⚠️  GENERACIÓN COMPLETADA CON ERRORES PARCIALES")
             logger.info(f"\n  Resumen:")
-            logger.info(f"     • Pares exitosos:           {exitosos}/{len(self.pares)}")
-            logger.info(f"     • Pares con errores:        {len(self.pares) - exitosos}")
+            logger.info(f"     • Combinaciones exitosas:   {exitosos}/{total_combinaciones}")
+            logger.info(f"     • Combinaciones con errores: {total_combinaciones - exitosos}")
 
             logger.info(f"\n  📋 ACCIÓN REQUERIDA:")
             logger.info(f"     1. Revisar errores arriba")
