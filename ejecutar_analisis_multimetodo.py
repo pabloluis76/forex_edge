@@ -1153,13 +1153,14 @@ class EjecutorAnalisisMultimetodo:
         print(f"\n{'─'*100}")
         print(f"{'2. RESULTADOS POR PAR (TABLA COMPLETA)':^100}")
         print(f"{'─'*100}")
-        print(f"\n{'Par':<10} │ {'✓':<3} │ {'Features':<10} │ {'IC Sig.':<9} │ {'R² RF':<8} │ {'R² GB':<8} │ {'IC Max':<8} │ {'Tiempo':<10}")
+        print(f"\n{'Par_TF':<14} │ {'✓':<3} │ {'Features':<10} │ {'IC Sig.':<9} │ {'R² RF':<8} │ {'R² GB':<8} │ {'IC Max':<8} │ {'Tiempo':<10}")
         print("─" * 100)
 
-        for par in self.pares:
-            res = self.resultados[par]
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
 
             if res['exito']:
+                par = res['par']
                 ic_sig = res['analisis']['estadistico']['n_features_significativos_ic']
                 ic_max = res['analisis']['estadistico'].get('ic_maximo', 0)
 
@@ -1177,15 +1178,15 @@ class EjecutorAnalisisMultimetodo:
                     r2_gb_str = "N/A     "
 
                 print(
-                    f"{par:<10} │ {'✓':<3} │ {res['n_features']:>9,} │ "
+                    f"{key:<14} │ {'✓':<3} │ {res['n_features']:>9,} │ "
                     f"{ic_sig:>8,} │ {r2_rf_str} │ {r2_gb_str} │ {ic_max:>7.4f} │ {res['tiempo_segundos']:>9.1f}s"
                 )
             else:
                 print(
-                    f"{par:<10} │ {'✗':<3} │ {'N/A':<10} │ {'N/A':<9} │ "
+                    f"{key:<14} │ {'✗':<3} │ {'N/A':<10} │ {'N/A':<9} │ "
                     f"{'N/A':<8} │ {'N/A':<8} │ {'N/A':<8} │ {res['tiempo_segundos']:>9.1f}s"
                 )
-                print(f"{'':11} └─ Error: {res.get('error', 'Desconocido')}")
+                print(f"{'':15} └─ Error: {res.get('error', 'Desconocido')}")
 
         print("─" * 100)
 
@@ -1208,10 +1209,10 @@ class EjecutorAnalisisMultimetodo:
         print("MÉTRICAS DETALLADAS")
         print(f"{'─'*80}")
 
-        for par in self.pares:
-            res = self.resultados[par]
+        for key in sorted(self.resultados.keys()):
+            res = self.resultados[key]
             if res['exito']:
-                print(f"\n{par}:")
+                print(f"\n{key}:")
 
                 # Estadístico
                 if 'estadistico' in res['analisis']:
