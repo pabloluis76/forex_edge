@@ -799,7 +799,7 @@ def main():
     BASE_DIR = Path(__file__).parent
     FEATURES_DIR = BASE_DIR / 'datos' / 'features'
     OUTPUT_DIR = BASE_DIR / 'datos' / 'metodos_estadisticos_clasicos'
-    TIMEFRAMES = ["M15", "H1", "H4", "D1"]
+    TIMEFRAMES = ["M15", "H1", "H4", "D"]
 
     # Opciones de análisis
     HORIZONTE_PREDICCION = 1  # Predecir retorno 1 período adelante

@@ -119,7 +119,7 @@ class EjecutorBacktest:
         self.datos_ohlc_dir = Path(datos_ohlc_dir)
         self.estrategias_dir = Path(estrategias_dir)
         self.output_dir = Path(output_dir)
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.capital_inicial = capital_inicial
         self.verbose = verbose
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
@@ -1004,7 +1004,7 @@ def main():
     OUTPUT_DIR = DATOS_DIR / 'backtest'
 
     # Parámetros MULTI-TIMEFRAME
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
     CAPITAL_INICIAL = 100000  # $100,000
     PARES = ['EUR_USD', 'GBP_USD', 'USD_JPY', 'EUR_JPY', 'GBP_JPY', 'AUD_USD']  # Lista de pares a procesar (None = auto-detectar)
 

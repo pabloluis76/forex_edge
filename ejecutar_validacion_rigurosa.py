@@ -182,7 +182,7 @@ class EjecutorValidacionRigurosa:
         self.features_dir = Path(features_dir)
         self.consenso_dir = Path(consenso_dir)
         self.output_dir = Path(output_dir)
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.horizonte_prediccion = horizonte_prediccion
         self.train_years = train_years
         self.test_months = test_months
@@ -1049,7 +1049,7 @@ def main():
     OUTPUT_DIR = BASE_DIR / 'datos' / 'validacion_rigurosa'
 
     # MULTI-TIMEFRAME: Validar todos los timeframes
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
 
     # Opciones de validación
     HORIZONTE_PREDICCION = 1   # Predecir 1 período adelante

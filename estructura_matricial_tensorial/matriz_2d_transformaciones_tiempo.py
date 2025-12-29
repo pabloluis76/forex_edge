@@ -435,7 +435,7 @@ class MatrizMultiTimeframe:
             Número de timeframes cargados exitosamente
         """
         if timeframes is None:
-            timeframes = ['M15', 'H1', 'H4', 'D1']
+            timeframes = ['M15', 'H1', 'H4', 'D']
 
         logger.info(f"\nCargando timeframes para {self.par}:")
 

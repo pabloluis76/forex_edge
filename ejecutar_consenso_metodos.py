@@ -165,7 +165,7 @@ class EjecutorConsensoMetodos:
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.horizonte_prediccion = horizonte_prediccion
         self.top_n_por_metodo = top_n_por_metodo
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
@@ -1122,7 +1122,7 @@ def main():
     OUTPUT_DIR = BASE_DIR / 'datos' / 'consenso_metodos'
 
     # MULTI-TIMEFRAME: Consenso para todos los timeframes
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
 
     # Opciones de consenso
     HORIZONTE_PREDICCION = 1    # Predecir retorno 1 período adelante

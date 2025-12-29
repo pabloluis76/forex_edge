@@ -118,7 +118,7 @@ class EjecutorEstructuraMatricialTensorial:
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
         self.pares = pares
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
 
@@ -792,7 +792,7 @@ def main():
     ]
 
     # MULTI-TIMEFRAME: Procesar todos los timeframes
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
 
     SEQ_LENGTH = 50  # Longitud de secuencias para LSTM/GRU
     NORM_WINDOW = 200  # Ventana para normalización rolling

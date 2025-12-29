@@ -69,7 +69,7 @@ class EjecutorGeneracionCompleta:
         """
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
 
@@ -442,7 +442,7 @@ def main():
     OUTPUT_DIR = BASE_DIR / 'datos' / 'features'
 
     # MULTI-TIMEFRAME: Generar transformaciones para todos los timeframes
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
 
     # Opciones de limpieza de archivos
     LIMPIAR_ARCHIVOS_VIEJOS = True  # True = Borra archivos viejos antes de iniciar

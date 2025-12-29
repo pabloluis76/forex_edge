@@ -423,7 +423,7 @@ class PreparadorDatosBacktest:
             - D1_open, D1_high, D1_low, D1_close, D1_volume
         """
         if timeframes is None:
-            timeframes = ['M15', 'H1', 'H4', 'D1']
+            timeframes = ['M15', 'H1', 'H4', 'D']
 
         if self.verbose:
             print(f"\n{'='*80}")

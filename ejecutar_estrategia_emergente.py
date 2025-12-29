@@ -109,7 +109,7 @@ class EjecutorEstrategiaEmergente:
         self.features_validados_dir = Path(features_validados_dir)
         self.analisis_ic_dir = Path(analisis_ic_dir)
         self.output_dir = Path(output_dir)
-        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D1']
+        self.timeframes = timeframes or ['M15', 'H1', 'H4', 'D']
         self.verbose = verbose
         self.limpiar_archivos_viejos = limpiar_archivos_viejos
         self.hacer_backup = hacer_backup
@@ -782,7 +782,7 @@ def main():
     OUTPUT_DIR = DATOS_DIR / 'estrategia_emergente'
 
     # Parámetros MULTI-TIMEFRAME
-    TIMEFRAMES = ['M15', 'H1', 'H4', 'D1']
+    TIMEFRAMES = ['M15', 'H1', 'H4', 'D']
     PARES = ['EUR_USD', 'GBP_USD', 'USD_JPY', 'EUR_JPY', 'GBP_JPY', 'AUD_USD']  # Lista de pares a procesar (None = auto-detectar)
 
     # Crear ejecutor MULTI-TIMEFRAME
