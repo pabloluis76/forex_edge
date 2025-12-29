@@ -166,7 +166,7 @@ class EjecutorAnalisisMultimetodo:
         Args:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar resultados del análisis
-            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D'])
             horizonte_prediccion: Períodos adelante para calcular retorno objetivo
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
             hacer_backup: Si True, hace backup antes de borrar

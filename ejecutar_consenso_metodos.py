@@ -157,11 +157,28 @@ class EjecutorConsensoMetodos:
         Args:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar resultados
-            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D'])
             horizonte_prediccion: Períodos adelante para calcular retorno
             top_n_por_metodo: Número de top features por método (default: 100)
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
             hacer_backup: Si True, hace backup antes de borrar
+
+        Nota sobre dependencias:
+            El módulo de consenso combina resultados de múltiples métodos de análisis:
+            - IC (Information Coefficient) - REQUERIDO
+            - MI (Mutual Information) - REQUERIDO
+            - RF (Random Forest) - REQUERIDO
+            - DL (Deep Learning) - OPCIONAL (requiere TensorFlow)
+
+            Si TensorFlow no está disponible o si el análisis DL no se ejecutó:
+            - El consenso usará solo 3 métodos (IC, MI, RF) en lugar de 4
+            - El umbral de votación se ajusta automáticamente
+            - Los features aprobados requieren 2+ votos de 3 métodos
+
+            Para incluir Deep Learning en el consenso:
+            1. Instalar TensorFlow: pip install tensorflow
+            2. Ejecutar ejecutar_analisis_multimetodo.py con usar_deep_learning=True
+            3. Los resultados DL se guardarán en analisis_multimetodo/*_analisis_DL.json
         """
         self.features_dir = Path(features_dir)
         self.output_dir = Path(output_dir)
@@ -775,6 +792,42 @@ class EjecutorConsensoMetodos:
         Ejecuta el consenso MULTI-TIMEFRAME para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
+
+        # VALIDACIÓN: Verificar que existen los datos de entrada necesarios
+        if not self.features_dir.exists():
+            error_msg = (f"ERROR: Directorio de features no existe: {self.features_dir}\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_generacion_transformaciones.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que hay archivos de features para al menos un timeframe
+        archivos_features = list(self.features_dir.glob("*_features.parquet"))
+        if len(archivos_features) == 0:
+            error_msg = (f"ERROR: No se encontraron archivos de features en {self.features_dir}\n"
+                        f"Patrón esperado: *_features.parquet\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_generacion_transformaciones.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que existe el directorio de análisis multi-método
+        analisis_dir = Path(__file__).parent / 'datos' / 'analisis_multimetodo'
+        if not analisis_dir.exists():
+            logger.warning("="*80)
+            logger.warning("⚠ ADVERTENCIA: Directorio de análisis multi-método no existe")
+            logger.warning(f"  Buscado: {analisis_dir}")
+            logger.warning("  El consenso funcionará en MODO FALLBACK (menos eficiente)")
+            logger.warning("  Recomendación: Ejecutar 'ejecutar_analisis_multimetodo.py' primero")
+            logger.warning("="*80)
+        else:
+            # Verificar si hay archivos de análisis
+            archivos_analisis = list(analisis_dir.glob("*_analisis_*.csv")) + list(analisis_dir.glob("*_analisis_*.json"))
+            if len(archivos_analisis) == 0:
+                logger.warning("="*80)
+                logger.warning("⚠ ADVERTENCIA: No se encontraron resultados de análisis multi-método")
+                logger.warning(f"  Directorio: {analisis_dir}")
+                logger.warning("  El consenso funcionará en MODO FALLBACK (menos eficiente)")
+                logger.warning("  Recomendación: Ejecutar 'ejecutar_analisis_multimetodo.py' primero")
+                logger.warning("="*80)
 
         logger.info("\n" + "="*80)
         logger.info("CONSENSO DE MÉTODOS - MULTI-TIMEFRAME")

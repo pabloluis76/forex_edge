@@ -96,7 +96,7 @@ class EjecutorEstrategiaEmergente:
         output_dir : Path
             Directorio para guardar estrategias emergentes
         timeframes : list
-            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
+            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D'])
         pares : List[str], optional
             Lista de pares a procesar. Si None, procesa todos los disponibles
         limpiar_archivos_viejos : bool
@@ -449,6 +449,38 @@ class EjecutorEstrategiaEmergente:
         """
         Ejecuta generación de estrategias MULTI-TIMEFRAME para todos los pares.
         """
+        # VALIDACIÓN: Verificar que existen los datos de entrada necesarios
+        if not self.features_validados_dir.exists():
+            error_msg = (f"ERROR: Directorio de features validados no existe: {self.features_validados_dir}\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_validacion_rigurosa.py'")
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que hay archivos de features validados
+        archivos_validados = list(self.features_validados_dir.glob("*_features_validados.csv"))
+        if len(archivos_validados) == 0:
+            error_msg = (f"ERROR: No se encontraron features validados en {self.features_validados_dir}\n"
+                        f"Patrón esperado: *_features_validados.csv\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_validacion_rigurosa.py'")
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que existe el directorio de análisis IC
+        if not self.analisis_ic_dir.exists():
+            error_msg = (f"ERROR: Directorio de análisis IC no existe: {self.analisis_ic_dir}\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_analisis_multimetodo.py'")
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que hay archivos de análisis IC
+        archivos_ic = list(self.analisis_ic_dir.glob("*_analisis_IC.csv"))
+        if len(archivos_ic) == 0:
+            error_msg = (f"ERROR: No se encontraron archivos de análisis IC en {self.analisis_ic_dir}\n"
+                        f"Patrón esperado: *_analisis_IC.csv\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_analisis_multimetodo.py'")
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
         self.logger.info(f"Iniciando generación de estrategias emergentes MULTI-TIMEFRAME")
         self.logger.info(f"Pares: {len(self.pares)}, Timeframes: {len(self.timeframes)}")
 

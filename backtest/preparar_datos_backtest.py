@@ -406,7 +406,7 @@ class PreparadorDatosBacktest:
         par : str
             Par a procesar (ej: 'EUR_USD')
         timeframes : List[str], optional
-            Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D1'])
+            Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D'])
         fecha_inicio : str, optional
             Fecha de inicio (formato: 'YYYY-MM-DD')
         fecha_fin : str, optional
@@ -420,7 +420,7 @@ class PreparadorDatosBacktest:
             - M15_open, M15_high, M15_low, M15_close, M15_volume
             - H1_open, H1_high, H1_low, H1_close, H1_volume
             - H4_open, H4_high, H4_low, H4_close, H4_volume
-            - D1_open, D1_high, D1_low, D1_close, D1_volume
+            - D_open, D_high, D_low, D_close, D_volume
         """
         if timeframes is None:
             timeframes = ['M15', 'H1', 'H4', 'D']

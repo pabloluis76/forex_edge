@@ -170,7 +170,7 @@ class EjecutorValidacionRigurosa:
             features_dir: Directorio con features generados (.parquet)
             consenso_dir: Directorio con features aprobados por consenso
             output_dir: Directorio para guardar resultados
-            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de timeframes (default: ['M15', 'H1', 'H4', 'D'])
             horizonte_prediccion: Períodos adelante
             train_years: Años para train en walk-forward
             test_months: Meses para test en walk-forward
@@ -658,6 +658,38 @@ class EjecutorValidacionRigurosa:
         Ejecuta la validación para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
+
+        # VALIDACIÓN: Verificar que existen los datos de entrada necesarios
+        if not self.features_dir.exists():
+            error_msg = (f"ERROR: Directorio de features no existe: {self.features_dir}\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_generacion_transformaciones.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que hay archivos de features
+        archivos_features = list(self.features_dir.glob("*_features.parquet"))
+        if len(archivos_features) == 0:
+            error_msg = (f"ERROR: No se encontraron archivos de features en {self.features_dir}\n"
+                        f"Patrón esperado: *_features.parquet\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_generacion_transformaciones.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que existe el directorio de consenso
+        if not self.consenso_dir.exists():
+            error_msg = (f"ERROR: Directorio de consenso no existe: {self.consenso_dir}\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_consenso_metodos.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que hay archivos de features aprobados por consenso
+        archivos_aprobados = list(self.consenso_dir.glob("*_features_aprobados.csv"))
+        if len(archivos_aprobados) == 0:
+            error_msg = (f"ERROR: No se encontraron features aprobados en {self.consenso_dir}\n"
+                        f"Patrón esperado: *_features_aprobados.csv\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_consenso_metodos.py'")
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
 
         logger.info("\n" + "="*80)
         logger.info("VALIDACIÓN RIGUROSA - TODOS LOS PARES")

@@ -104,7 +104,7 @@ class EjecutorBacktest:
         output_dir : Path
             Directorio para guardar resultados de backtest
         timeframes : list
-            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
+            Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D'])
         capital_inicial : float
             Capital inicial para backtest (default: $100,000)
         pares : List[str], optional
@@ -524,6 +524,34 @@ class EjecutorBacktest:
         Ejecuta backtest completo para todos los pares.
         """
         self.tiempo_inicio = datetime.now()
+
+        # VALIDACIÓN: Verificar que hay estrategias disponibles
+        if not self.estrategias_dir.exists():
+            error_msg = f"ERROR: Directorio de estrategias no existe: {self.estrategias_dir}"
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        if len(self.pares) == 0:
+            error_msg = (f"ERROR: No se encontraron estrategias para procesar.\n"
+                        f"Directorio buscado: {self.estrategias_dir}\n"
+                        f"Patrón esperado: *_{self.timeframe}_estrategia.py\n"
+                        f"Sugerencia: Ejecutar primero 'ejecutar_estrategia_emergente.py'")
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        # Verificar que cada par tenga su archivo de estrategia
+        pares_sin_estrategia = []
+        for par in self.pares:
+            archivo_estrategia = self.estrategias_dir / f"{par}_{self.timeframe}_estrategia.py"
+            if not archivo_estrategia.exists():
+                pares_sin_estrategia.append(par)
+
+        if pares_sin_estrategia:
+            error_msg = (f"ERROR: Los siguientes pares no tienen archivo de estrategia:\n" +
+                        "\n".join(f"  - {par}" for par in pares_sin_estrategia))
+            self.logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+
         self.logger.info(f"Iniciando backtest para {len(self.pares)} pares")
 
         # Limpiar archivos viejos si está habilitado

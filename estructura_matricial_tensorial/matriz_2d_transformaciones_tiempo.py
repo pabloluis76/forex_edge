@@ -358,7 +358,7 @@ class MatrizMultiTimeframe:
     """
     Gestor de matrices 2D para MÚLTIPLES TIMEFRAMES.
 
-    Maneja un conjunto de matrices (M15, H1, H4, D1) para un par,
+    Maneja un conjunto de matrices (M15, H1, H4, D) para un par,
     permitiendo análisis cross-timeframe y construcción de tensores 3D.
 
     ESTRUCTURA:
@@ -366,7 +366,7 @@ class MatrizMultiTimeframe:
         'M15': MatrizTransformacionesTiempo,
         'H1': MatrizTransformacionesTiempo,
         'H4': MatrizTransformacionesTiempo,
-        'D1': MatrizTransformacionesTiempo
+        'D': MatrizTransformacionesTiempo
     }
     """
 
@@ -429,7 +429,7 @@ class MatrizMultiTimeframe:
 
         Args:
             features_dir: Directorio con archivos de features
-            timeframes: Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de TF a cargar (default: ['M15', 'H1', 'H4', 'D'])
 
         Returns:
             Número de timeframes cargados exitosamente

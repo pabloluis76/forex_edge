@@ -63,7 +63,7 @@ class EjecutorGeneracionCompleta:
         Args:
             data_dir: Directorio con datos OHLC
             output_dir: Directorio para guardar features generados
-            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D'])
             limpiar_archivos_viejos: Si True, borra archivos .parquet viejos antes de iniciar
             hacer_backup: Si True, hace backup de archivos existentes antes de borrarlos
         """

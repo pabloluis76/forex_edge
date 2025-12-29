@@ -111,7 +111,7 @@ class EjecutorEstructuraMatricialTensorial:
             features_dir: Directorio con features generados (.parquet)
             output_dir: Directorio para guardar estructuras
             pares: Lista de pares a procesar
-            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D1'])
+            timeframes: Lista de timeframes a procesar (default: ['M15', 'H1', 'H4', 'D'])
             limpiar_archivos_viejos: Si True, borra archivos viejos antes de iniciar
             hacer_backup: Si True, hace backup antes de borrar
         """
@@ -191,7 +191,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
-            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D')
 
         Returns:
             DataFrame con features o None si error
@@ -218,7 +218,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
-            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D')
             df_features: DataFrame con features
 
         Returns:
@@ -295,7 +295,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
-            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D')
             df_features: DataFrame con features
             seq_length: Longitud de cada secuencia (default: 50 velas)
 
@@ -389,7 +389,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
-            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D')
             df_features: DataFrame con features
             window: Ventana para normalización (default: 200)
 
@@ -471,7 +471,7 @@ class EjecutorEstructuraMatricialTensorial:
 
         Args:
             par: Nombre del par
-            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D1')
+            timeframe: Timeframe (ej: 'M15', 'H1', 'H4', 'D')
             seq_length: Longitud de secuencias para tensor 3D
             norm_window: Ventana para normalización
         """
